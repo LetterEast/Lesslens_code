@@ -1,4 +1,4 @@
-function [Rec_nInterative, rect] = getRec_APRW_batch(img_set, MainPara, DistanceIntervalSet, iIte_record, predefined_rect)
+function [Object_final, rect] = getRec_APRW_batch(img_set, MainPara, DistanceIntervalSet, iIte_record, predefined_rect)
 %GETREC_APRW_BATCH  Multi-distance phase retrieval with weighted feedback (APRW/MDPRF style)
 %
 % Core idea:
@@ -247,6 +247,8 @@ for iIte = 1 : nIterative
         count = count + 1;
     end
 end
+
+Object_final = Object;
 
 toc;
 disp('finish reconstruction');

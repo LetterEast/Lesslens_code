@@ -1,7 +1,7 @@
 clear; clc; close all;
 addpath(genpath(pwd));
 % Define base paths
-usa_dir    = 'D:\Desktop\无透镜成像原始数据\超像素分辨\2026.4.14.2生物样品\one-bg_fish0.5mm';
+image_dir    = 'D:\Desktop\无透镜成像原始数据\超像素分辨\2026.4.14.2生物样品\one-bg_fish0.5mm';
 circle_dir = 'D:\Desktop\extracted_circle_images';
 result_base = fullfile(pwd, 'result');
 
@@ -10,7 +10,7 @@ if ~exist(result_base, 'dir')
 end
 
 % Get list of subfolders (e.g. 1(235,395))
-dirs = dir(fullfile(usa_dir, '*'));
+dirs = dir(fullfile(image_dir, '*'));
 is_valid_dir = [dirs.isdir] & ~ismember({dirs.name}, {'.','..','Output_All_Reconstructions'});
 valid_dirs = dirs(is_valid_dir);
 
@@ -20,7 +20,7 @@ batch_predefined_rect = [];
 for k = 1:length(valid_dirs)
     folder_name = valid_dirs(k).name;
 
-    RawImgFolder = fullfile(usa_dir, folder_name);
+    RawImgFolder = fullfile(image_dir, folder_name);
 
     % Find MNZ_result.mat in the corresponding circle_dir
     circle_sub_dir = fullfile(circle_dir, folder_name);

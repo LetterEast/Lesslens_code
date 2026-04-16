@@ -18,7 +18,7 @@ fy = (-mRow/2 : mRow/2-1) / (mRow*PixelSize);
 
 out_img_set = cell(1,num_img);
 out_img_set{1} = img_set{1};
-imwrite(mat2gray(img_set{1}),fullfile(title_folder,"1.png"))
+imwrite(mat2gray(img_set{1}),fullfile(title_folder,"001.png"))
 DistanceInterval = 0;
 for i = 2:num_img
     Interval = DistanceIntervalSet(i);

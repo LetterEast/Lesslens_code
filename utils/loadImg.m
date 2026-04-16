@@ -1,4 +1,4 @@
-function img_set = loadImg(img_folder, n_img, step, TargetSize)
+function img_set = loadImg(img_folder, TargetSize)
 % img_folder      : 图像所在文件夹
 % n_img           : 读取的图像个数
 % filename_format : 文件名格式（用于 sprintf）
@@ -21,15 +21,13 @@ for num = 1 : numel(input_folder_info)
     end
 end
 img_folder_info = dir(fullfile(input_folder,sprintf("*%s",ImageFormat)));
-
+n_img = length(img_folder_info);
 img_set = cell(n_img, 1);
 
-if nargin < 4 || isempty(step)
-    step = 1;
-end
+
 
 % 是否需要零填充
-doPad = (nargin >= 5) && ~isempty(TargetSize);
+doPad = (nargin >= 2) && ~isempty(TargetSize);
 
 if doPad
     if isscalar(TargetSize)
