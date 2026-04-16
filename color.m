@@ -84,6 +84,26 @@ for i_folder = 1:num_folder
     color_channels{i_folder} = IntensityImg;
 end
 
+% % 裁剪三通道
+% for i_img = 1:numel(color_channels)
+%     if i_img == 1
+%         [color_channels{i_img},rect] = imcrop(color_channels{i_img});
+%     else
+%         color_channels{i_img} = imcrop(color_channels{i_img},rect);
+%     end
+% end
+
+% 对齐三个通道
+usfac = 20;
+buf1ft = fft2(color_channels{1});
+for i_img = 2:numel(color_channels)
+    buf2ft = fft2(color_channels{i_img});
+    [output, ~] = dftregistration(buf1ft,buf2ft,usfac);
+    Shift_X = output(4);
+    Shift_Y = output(3);
+    color_channels{i_img} = subpixelshift(color_channels{i_img}, Shift_X, Shift_Y);
+end
+
 % 如果成功跑了3个通道，将其合成为彩色RGB输出
 if num_folder == 3
     fprintf('==============================================\n');
