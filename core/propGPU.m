@@ -50,7 +50,7 @@ if useGPU, W_spatial = gpuArray(W_spatial); end
 U_base = U_base .* W_spatial;
 
 % --- 5. 补零扩充 ---
-pad_factor = 2;
+pad_factor = 4; % 增加补零系数，防止大衍射角下的卷边问题
 pad_M = M * pad_factor;
 pad_N = N * pad_factor;
 if useGPU
@@ -76,23 +76,39 @@ end
 % --- 7. 前向 FFT (此时频谱绝对完美居中) ---
 Uspectrum = fftshift(fft2(ifftshift(U_pad)));
 
+% 计算真实物理频率 (Demodulation limits spectrum to 0, so true frequency is shifted back)
+U_true = U_freq + fx;
+V_true = V_freq + fy;
+
 % --- 8. 标准轴向角谱传递函数 ---
-w_sq = 1 - (lambda * U_freq).^2 - (lambda * V_freq).^2;
+w_sq = 1 - (lambda * U_true).^2 - (lambda * V_true).^2;
 valid_w = w_sq > 0;
 H_AS = zeros(size(w_sq), 'like', w_sq);
 H_AS(valid_w) = exp(1i * (2 * pi / lambda) * z * sqrt(w_sq(valid_w)));
 
-% 软切断带限掩模 (仅切断极高频噪声，0.8 ~ 1.0 平滑过渡)
-u_limit = 1 / lambda / sqrt(1 + (2 * du * z)^2);
-v_limit = 1 / lambda / sqrt(1 + (2 * dv * z)^2);
-rho = sqrt((U_freq/u_limit).^2 + (V_freq/v_limit).^2);
+% 软切断带限掩模 (Matsushima 2010 严格带限 Shifted-AS mask)
+X_len = pad_N * sampling_rate;
+Y_len = pad_M * sampling_rate;
+
+u1 = (-x0 + X_len/2) / lambda / sqrt(z^2 + (-x0 + X_len/2)^2);
+u2 = (-x0 - X_len/2) / lambda / sqrt(z^2 + (-x0 - X_len/2)^2);
+u_max = max(u1, u2); u_min = min(u1, u2);
+
+v1 = (-y0 + Y_len/2) / lambda / sqrt(z^2 + (-y0 + Y_len/2)^2);
+v2 = (-y0 - Y_len/2) / lambda / sqrt(z^2 + (-y0 - Y_len/2)^2);
+v_max = max(v1, v2); v_min = min(v1, v2);
+
+u_c = (u_max + u_min) / 2; u_w = (u_max - u_min) / 2;
+v_c = (v_max + v_min) / 2; v_w = (v_max - v_min) / 2;
+
+rho = sqrt(((U_true - u_c)./u_w).^2 + ((V_true - v_c)./v_w).^2);
 mask = ones(size(rho), 'like', rho);
 idx = rho > 0.8 & rho <= 1.0;
 mask(idx) = 0.5 * (1 + cos(pi * (rho(idx) - 0.8) / 0.2));
 mask(rho > 1.0) = 0;
 
 % --- 9. 傅里叶平移定理 (核心物理转移) ---
-H_shift = exp(-1i * 2 * pi * (U_freq * x0 + V_freq * y0));
+H_shift = exp(-1i * 2 * pi * (U_true * x0 + V_true * y0));
 
 % --- 10. 频域滤波与逆变换 ---
 newUspectrum = Uspectrum .* H_AS .* H_shift .* mask;

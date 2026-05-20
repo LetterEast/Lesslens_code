@@ -1,8 +1,8 @@
 clear; clc; close all;
 addpath(genpath(pwd));
 % Define base paths
-image_dir    = 'D:\Desktop\无透镜成像原始数据\超像素分辨\2026.4.14.2生物样品\one-bg_fish0.5mm';
-circle_dir = 'D:\Desktop\extracted_circle_images';
+image_dir    = 'D:\Desktop\data\2026\4.17data\green_usa_0.5mm\one-bg_20260417_161556';
+circle_dir = 'D:\Desktop\data\2026\4.17data\green_circle_1mm\one-bg_20260417_153339';
 result_base = fullfile(pwd, 'result');
 
 if ~exist(result_base, 'dir')
@@ -41,8 +41,6 @@ for k = 1:length(valid_dirs)
     nIterative  = 10;
     numImages   = 5;
 
-    step  = 1;
-    n_use = floor((numImages-1)/step) + 1;
     iIte_record = 10;
 
     ParaDisInterval.DisIntervalPre =  1e-3;
@@ -57,7 +55,7 @@ for k = 1:length(valid_dirs)
     OutputPath = RawImgAverage(RawImgFolder, numImages);
 
     % 2) Load cropped images
-    img_set = loadImg(OutputPath, n_use, step);
+    img_set = loadImg(OutputPath);
 
 
     % 3) Distance interval set
