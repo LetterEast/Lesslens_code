@@ -106,6 +106,25 @@ ImgRec = ImgRec .* IllumPattern;  % apply illumination modulation if needed
 ImgRec_record1 = cell(1, (n_img-1));  % g~_{k-1}(n)
 ImgRec_record2 = cell(1, (n_img-1));  % g~_{k-2}(n)
 
+% 若 TiltIllumination 使用了边界填充，在每次迭代后对 ImgRec 施加同样的边缘蒙版
+% 以防止边界噪声在迭代间不断累积
+if isfield(MNZ_result, 'padSize') && any(MNZ_result.padSize > 0)
+    padY = MNZ_result.padSize(1);
+    padX = MNZ_result.padSize(2);
+    wY = ones(mRow, 1);
+    wY(1:padY) = sin((0:padY-1)'/padY * pi/2).^2;
+    wY(end-padY+1:end) = cos((0:padY-1)'/padY * pi/2).^2;
+    wX = ones(1, nCol);
+    wX(1:padX) = sin((0:padX-1)/padX * pi/2).^2;
+    wX(end-padX+1:end) = cos((0:padX-1)/padX * pi/2).^2;
+    W_rec = wY * wX;
+else
+    W_rec = ones(mRow, nCol);
+end
+
+% FOV 覆盖蒙版（CovMask）将在第一次迭代后根据 zSet 计算
+CovMask = {};
+
 %% ---------- Visualization ----------
 hFig = figure('Name', 'APRW / Weighted Feedback Monitor');
 ax1 = subplot(1,2,1, 'Parent', hFig);
@@ -143,9 +162,54 @@ for iIte = 1 : nIterative
         y = -MNZ_result.N*PixelSize*(z/D_LED2CCD);
         lightOnDetector = propGPU(ImgRec, PixelSize, WaveLength, z, x, y);
 
-        % (2) Amplitude replacement: measured amplitude = sqrt(intensity)
-        thisAmpImg      = img_set{iImg}.^0.5;
-        lightOnDetector = thisAmpImg .* exp(1j .* angle(lightOnDetector));
+        % (2) Amplitude replacement: Soft-masked constraint to avoid boundary diffraction/curling
+        if isfield(MNZ_result, 'orig_M') && isfield(MNZ_result, 'orig_N') && isfield(MNZ_result, 'Z')
+            kx = MNZ_result.orig_M / MNZ_result.Z;
+            ky = MNZ_result.orig_N / MNZ_result.Z;
+            ShiftX_pixels = z * kx;
+            ShiftY_pixels = z * ky;
+            x_start = max(1, round(1 + ShiftX_pixels));
+            x_end = min(nCol, round(nCol + ShiftX_pixels));
+            y_start = max(1, round(1 + ShiftY_pixels));
+            y_end = min(mRow, round(mRow + ShiftY_pixels));
+            
+            % Create 1D masks with 30-pixel cosine transition
+            transition_width = 30;
+            mask_x = zeros(1, nCol);
+            mask_y = zeros(1, mRow);
+            
+            x_valid_len = x_end - x_start + 1;
+            if x_valid_len > 2 * transition_width
+                mask_x(x_start : x_end) = 1;
+                % Smooth cosine ramp from 0 to 1
+                ramp = 0.5 * (1 - cos(pi * (0 : transition_width-1) / transition_width));
+                mask_x(x_start : x_start + transition_width - 1) = ramp;
+                mask_x(x_end - transition_width + 1 : x_end) = fliplr(ramp);
+            else
+                mask_x(x_start : x_end) = 1;
+            end
+            
+            y_valid_len = y_end - y_start + 1;
+            if y_valid_len > 2 * transition_width
+                mask_y(y_start : y_end) = 1;
+                ramp = 0.5 * (1 - cos(pi * (0 : transition_width-1) / transition_width));
+                mask_y(y_start : y_start + transition_width - 1) = ramp;
+                mask_y(y_end - transition_width + 1 : y_end) = fliplr(ramp);
+            else
+                mask_y(y_start : y_end) = 1;
+            end
+            
+            valid_mask = mask_y' * mask_x;
+            
+            % Blend measurement and propagated amplitude
+            propagated_amp = abs(lightOnDetector);
+            thisAmpImg = img_set{iImg}.^0.5;
+            temp_amp = valid_mask .* thisAmpImg + (1 - valid_mask) .* propagated_amp;
+            lightOnDetector = temp_amp .* exp(1j .* angle(lightOnDetector));
+        else
+            thisAmpImg      = img_set{iImg}.^0.5;
+            lightOnDetector = thisAmpImg .* exp(1j .* angle(lightOnDetector));
+        end
 
         % (3) Back propagate to object plane => g_k(n)
         ImgRec_record{iImg-1} = propGPU(lightOnDetector, PixelSize, WaveLength, -z, -x, -y);
@@ -184,8 +248,71 @@ for iIte = 1 : nIterative
         ImgRec_record1 = ImgRec_record;
     end
 
-    Stack = cat(3, ImgRec_record1{:});
-    ImgRec = mean(Stack, 3);
+    %% 计算 FOV 覆盖蒙版（仅需第一次迭代后计算一次）
+    if iIte == 1 && isfield(MNZ_result,'orig_M') && isfield(MNZ_result,'padSize') && isfield(MNZ_result,'orig_size')
+        kx_cov  = MNZ_result.orig_M / MNZ_result.Z;
+        ky_cov  = MNZ_result.orig_N / MNZ_result.Z;
+        padY_cov     = MNZ_result.padSize(1);
+        padX_cov     = MNZ_result.padSize(2);
+        mRow_orig_cov = MNZ_result.orig_size(1);
+        nCol_orig_cov = MNZ_result.orig_size(2);
+        trans_cov = 20;
+
+        CovMask = cell(1, n_img-1);
+        for iCov = 1:(n_img-1)
+            z_n = zSet(iCov+1);
+            s_x = round(z_n * kx_cov);
+            s_y = round(z_n * ky_cov);
+
+            col_lo = padX_cov + 1 + max(0, s_x);
+            col_hi = padX_cov + nCol_orig_cov + min(0, s_x);
+            row_lo = padY_cov + 1 + max(0, s_y);
+            row_hi = padY_cov + mRow_orig_cov + min(0, s_y);
+
+            col_lo = max(1, col_lo);  col_hi = min(nCol, col_hi);
+            row_lo = max(1, row_lo);  row_hi = min(mRow, row_hi);
+
+            mx = zeros(1, nCol);
+            if col_hi > col_lo
+                mx(col_lo:col_hi) = 1;
+                t = min(trans_cov, floor((col_hi-col_lo)/2));
+                if t > 0
+                    ramp = 0.5*(1 - cos(pi*(0:t-1)/t));
+                    mx(col_lo:col_lo+t-1) = ramp;
+                    mx(col_hi-t+1:col_hi) = fliplr(ramp);
+                end
+            end
+            my = zeros(mRow, 1);
+            if row_hi > row_lo
+                my(row_lo:row_hi) = 1;
+                t = min(trans_cov, floor((row_hi-row_lo)/2));
+                if t > 0
+                    ramp = (0.5*(1 - cos(pi*(0:t-1)/t)))';
+                    my(row_lo:row_lo+t-1) = ramp;
+                    my(row_hi-t+1:row_hi) = flipud(ramp);
+                end
+            end
+            CovMask{iCov} = my * mx;
+        end
+        fprintf('[getRec_APRW_batch] FOV coverage masks computed for %d planes.\n', n_img-1);
+    end
+
+    %% 用 FOV 覆盖蒙版加权平均代替等权 mean
+    if ~isempty(CovMask)
+        weight_map   = zeros(mRow, nCol);
+        weighted_sum = zeros(mRow, nCol, 'like', ImgRec);
+        for k = 1:(n_img-1)
+            weighted_sum = weighted_sum + CovMask{k} .* ImgRec_record1{k};
+            weight_map   = weight_map   + CovMask{k};
+        end
+        ImgRec = weighted_sum ./ max(weight_map, 1e-8);
+        ImgRec(weight_map < 0.01) = 0;
+    else
+        Stack  = cat(3, ImgRec_record1{:});
+        ImgRec = mean(Stack, 3);
+    end
+    ImgRec = ImgRec .* W_rec;  % 施加边缘蒙版，防止保护带区域的噪声跨迭代累积
+
 
     %% ---------- Record & save results ----------
     if (mod(iIte, iIte_record) == 0) && (count <= record_num)
@@ -228,6 +355,14 @@ for iIte = 1 : nIterative
 
         % Back to object plane and save Object
         Object = back2Object(ImgRec, D_Sample2CCD, MainPara);
+        
+        % 若使用了边界填充，在保存和输出前将其裁剪回原始视场大小
+        if isfield(MNZ_result, 'padSize') && any(MNZ_result.padSize > 0)
+            padY = MNZ_result.padSize(1);
+            padX = MNZ_result.padSize(2);
+            Object = Object(padY+1 : end-padY, padX+1 : end-padX);
+        end
+        
         save(fullfile(foldername, sprintf("Object_iter%04d.mat", iIte)), 'Object');
 
         % Save amplitude / phase images
