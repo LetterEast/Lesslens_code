@@ -55,6 +55,12 @@ MarginY = 0;
 a = 0.7;
 b = -0.13*a + 0.6;   %
 % b = 0;
+
+%% ---------- CCTV (Complex Total Variation) parameters ----------
+use_tv        = true;   % Toggle TV denoising
+lam_tv        = 1e-2;   % Regularization parameter (tune this, e.g., 1e-3 to 5e-2)
+gam_tv        = 2;      % Gradient step size
+n_subiters_tv = 10;      % TV inner loops
 %% ---------- Precompute propagation distances to each plane ----------
 % zSet(i) = distance from planei
 DistanceIntervalSet = DistanceIntervalSet(:).';
@@ -176,6 +182,28 @@ for iIte = 1 : nIterative
     MaskStack = cat(3, MNZ_result.ValidMask{:});
     ImgRec = sum(Stack .* MaskStack, 3) ./ max(sum(MaskStack, 3), 1e-6);
 
+    % ================== TV Denoising Proximal Update ==================
+    if use_tv
+        v_est = zeros(size(ImgRec,1), size(ImgRec,2), 2, 'like', ImgRec);
+        w_est = zeros(size(ImgRec,1), size(ImgRec,2), 2, 'like', ImgRec);
+
+        for subiter = 1:n_subiters_tv
+            w_next = v_est + (1 / (8 * gam_tv)) * Df( ImgRec - gam_tv * DTf(v_est) );
+            w_next = min(abs(w_next), lam_tv) .* exp(1j * angle(w_next));
+            v_est = w_next + (subiter / (subiter + 3)) * (w_next - w_est);
+            w_est = w_next;
+        end
+        ImgRec = ImgRec - gam_tv * DTf(w_est);
+    end
+    % ==================================================================
+
+    % ================== 物理约束 (Physical Constraints) ==================
+    % Absorption Constraint (吸收约束):
+    % 真实的纯相位或弱吸收物体，其透射率振幅物理上不能超过 1（不能放大光）。
+    % 给予 1.05 的微小宽容度，防止算法为了强行拟合误差而在图像中产生极其刺眼的高亮噪点。
+    ImgRec = min(abs(ImgRec), 1.05) .* exp(1j * angle(ImgRec));
+    % ==================================================================
+
     %% ---------- Record & save results ----------
     if (mod(iIte, iIte_record) == 0) && (count <= record_num)
 
@@ -243,4 +271,23 @@ end
 
 toc;
 disp('finish reconstruction');
+end
+
+%% ---------- TV Denoising Helper Functions ----------
+function w = Df(x)
+% 2D forward difference
+w = cat(3, x(1:end,:) - x([2:end,end],:), x(:,1:end) - x(:,[2:end,end]));
+end
+
+function u = DTf(w)
+% Transpose of the 2D difference
+u1 = w(:,:,1) - w([end,1:end-1],:,1);
+u1(1,:) = w(1,:,1);
+u1(end,:) = -w(end-1,:,1);
+
+u2 = w(:,:,2) - w(:,[end,1:end-1],2);
+u2(:,1) = w(:,1,2);
+u2(:,end) = -w(:,end-1,2);
+
+u = u1 + u2;
 end
