@@ -97,10 +97,18 @@ runStamp = datestr(now, 'yyyymmdd_HHMMSS');
 Parent_foldername = fullfile(".\ResultFolder", sprintf("APRW_%s_N%d_I%d_rec%d", runStamp, n_img, nIterative, iIte_record));
 if ~exist(Parent_foldername, 'dir'); mkdir(Parent_foldername); end
 
-%% ---------- Initialization ----------
+% ---------- Initialization ----------
 % Initialize complex field estimate at plane 1 using sqrt of first intensity
 ImgRec = sqrt(img_set{1});
-ImgRec = ImgRec .* IllumPattern;  % apply illumination modulation if needed
+% 初始在探测器面，按原代码逻辑附加球面波相位作为初始估计
+ImgRec = ImgRec .* IllumPattern; 
+
+% 将初始场反向传播回样品面
+D_Sample2CCD = ParaD_Sample2CCD.D_Sample2CCDPre;
+ImgRec = propGPU(ImgRec, PixelSize, WaveLength, -D_Sample2CCD);
+
+% 反向传播到样品面后，去除球面波相位，使 ImgRec 成为纯净的样品透射率函数
+ImgRec = ImgRec .* exp(-1j * angle(IllumPattern)); 
 
 % Store modulated guesses from previous iterations for weighted feedback
 ImgRec_record1 = cell(1, (n_img-1));  % g~_{k-1}(n)
@@ -155,12 +163,19 @@ for iIte = 1 : nIterative
         z = zSet(iImg);      % [m]
         z_mm = z * 1e3;      % [mm] for display
 
-        fprintf('Plane 1 -> %d propagation distance: %0.3f mm\n', iImg, z_mm);
+        fprintf('Sample Plane -> Plane %d propagation distance: %0.3f mm\n', iImg, z_mm);
 
         % (1) Forward propagate to detector plane iImg
-        x = -MNZ_result.M*PixelSize*(z/D_LED2CCD);
-        y = -MNZ_result.N*PixelSize*(z/D_LED2CCD);
-        lightOnDetector = propGPU(ImgRec, PixelSize, WaveLength, z, x, y);
+        Z_total = D_Sample2CCD + z;
+        
+        % 按照预处理注释的要求：原始 M/N 几何位移设为 0（因 TiltIllumination 已在图像域完成大尺度对齐）
+        % 此处仅使用数据驱动的 HSSA 亚像素对齐位移
+        x = -sa_shift(iImg, 2) * PixelSize;
+        y = -sa_shift(iImg, 1) * PixelSize;
+        
+        % 在正向传播前，给纯净的样品附加球面波相位
+        fieldToPropagate = ImgRec .* exp(1j * angle(IllumPattern));
+        lightOnDetector = propGPU(fieldToPropagate, PixelSize, WaveLength, Z_total, x, y);
 
         % (2) Amplitude replacement: Soft-masked constraint to avoid boundary diffraction/curling
         if isfield(MNZ_result, 'orig_M') && isfield(MNZ_result, 'orig_N') && isfield(MNZ_result, 'Z')
@@ -212,7 +227,9 @@ for iIte = 1 : nIterative
         end
 
         % (3) Back propagate to object plane => g_k(n)
-        ImgRec_record{iImg-1} = propGPU(lightOnDetector, PixelSize, WaveLength, -z, -x, -y);
+        fieldBack = propGPU(lightOnDetector, PixelSize, WaveLength, -Z_total, -x, -y);
+        % 反向传播回样品面后，去除球面波相位，得到纯净的样品
+        ImgRec_record{iImg-1} = fieldBack .* exp(-1j * angle(IllumPattern));
 
         % (4) Weighted feedback (start when k > 2)
         if iIte <= 2
@@ -354,7 +371,8 @@ for iIte = 1 : nIterative
         save(metaPath, 'MainPara', 'DistanceIntervalSet', 'zSet', 'a', 'b', 'D_Sample2CCD', 'iIte','ImgRec');
 
         % Back to object plane and save Object
-        Object = back2Object(ImgRec, D_Sample2CCD, MainPara);
+        % ImgRec 已经在样品面，无需再调用 back2Object
+        Object = ImgRec;
         
         % 若使用了边界填充，在保存和输出前将其裁剪回原始视场大小
         if isfield(MNZ_result, 'padSize') && any(MNZ_result.padSize > 0)

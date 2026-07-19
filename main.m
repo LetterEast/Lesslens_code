@@ -23,29 +23,29 @@ addpath(genpath(pwd));
 %==========================================================================
 
 %% Parameters setting (physical + acquisition)
-RawImgFolder = "D:\Desktop\data\2026\rgb\img\02_green_sample";
-load('D:\Desktop\data\2026\rgb\MNZ\02\MNZ_result.mat')
+RawImgFolder = "D:\Desktop\data\2026\USAF_1951\UD\img";
+load('D:\Desktop\data\2026\USAF_1951\2026-06-16_15-58-49\MNZ_result.mat')
 
 WaveLength          = 514e-9;                          % [m] wavelength
 PixelSize           = 3e-6;                            % [m/pixel] sensor effective pixel size
-nIterative          = 10;                            % iteration count
-numImages           = 5;                               % number of captured positions/images
-DistanceIntervalSet = [0,ones(1,numImages-1)]*1e-3;  % [m] distance interval between adjacent captures
-
+nIterative          = 1000;                            % iteration count
+numImages           = 11;                               % number of captured positions/images
+% DistanceIntervalSet = [0,ones(1,numImages-1)]*0.1e-3;  % [m] distance interval between adjacent captures
+DistanceIntervalSet = [0:0.1:1]*1e-3;
 %% Distance interval configuration (calibration search ranges)
 % Options
-iIte_record = 10;                             % record every iIte_record iterations
+iIte_record = 1;                             % record every iIte_record iterations
 
 % CCD axial translation per capture
 ParaDisInterval.DisIntervalPre =  0.5e-3;      % [m] prior interval
 ParaDisInterval.DisIntervalHalfRange = 0.5e-3;% [m] search half range
 ParaDisInterval.rough = 0.01e-3;            % [m] coarse step
 
-%  Sample-to-CCD distance
-ParaD_Sample2CCD.D_Sample2CCDPre       = 2e-3;     % [m]
-ParaD_Sample2CCD.D_Sample2CCDHalfRange = 1e-3;     % [m]
-ParaD_Sample2CCD.rough                 = 0.01e-3;  % [m] 粗测步长
-ParaD_Sample2CCD.Interval              = 0.1e-3;   % [m]
+%  Sample-to-CCD distance (Locked to 1.38 mm for testing)
+ParaD_Sample2CCD.D_Sample2CCDPre       = 1.38e-3;    % [m]
+ParaD_Sample2CCD.D_Sample2CCDHalfRange = 0;          % [m] Lock the search range
+ParaD_Sample2CCD.rough                 = 0.01e-3;    % [m] 粗测步长
+ParaD_Sample2CCD.Interval              = 0.1e-3;     % [m]
 
 MainPara.WaveLength       = WaveLength;
 MainPara.PixelSize        = PixelSize;

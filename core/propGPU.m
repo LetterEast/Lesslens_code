@@ -38,29 +38,40 @@ end
 % --- 2. 解析计算理论载波频率 ---
 L = sqrt(z^2 + x0^2 + y0^2);
 
-fx = (x0 / L) / lambda * sign(z);
-fy = (y0 / L) / lambda * sign(z);
+if L == 0
+    fx = 0;
+    fy = 0;
+else
+    fx = (x0 / L) / lambda * sign(z);
+    fy = (y0 / L) / lambda * sign(z);
+end
 % --- 3. 完美解调 (Demodulation) ---
 U_base = U .* exp(-1i * 2 * pi * (fx * X + fy * Y));
 
 % --- 4. 空间域边缘平滑 ---
-win_width = 0.04;  % 极窄的 Tukey 窗，仅平滑补零边界，不影响原图内容
+win_width = 0;
 W_spatial = tukeywin(M, win_width) * tukeywin(N, win_width)';
 if useGPU, W_spatial = gpuArray(W_spatial); end
 U_base = U_base .* W_spatial;
 
-% --- 5. 补零扩充 ---
+% --- 5. 边缘复制扩充 (替代原本的补零) ---
+% 纯补零会在边缘产生巨大的阶跃（从背景亮度突然掉到 0），传播时会产生强烈的菲涅尔衍射波纹（吉布斯振铃）侵入原图边缘
+% 边缘复制扩充（Replicate Padding）可以完美避免这种阶跃
 pad_factor = 4; % 增加补零系数，防止大衍射角下的卷边问题
 pad_M = M * pad_factor;
 pad_N = N * pad_factor;
-if useGPU
-    U_pad = gpuArray.zeros(pad_M, pad_N);
-else
-    U_pad = zeros(pad_M, pad_N);
-end
+
 start_row = floor((pad_M - M)/2) + 1;
 start_col = floor((pad_N - N)/2) + 1;
+
+% --- 方案 A: 纯零填充 (测试用) ---
+U_pad = zeros(pad_M, pad_N, 'like', U_base);
 U_pad(start_row : start_row+M-1, start_col : start_col+N-1) = U_base;
+
+% --- 方案 B: 边缘复制扩充 (原本的代码，效果好可随时切回) ---
+% idx_r = [ones(1, start_row - 1), 1:M, M * ones(1, pad_M - start_row - M + 1)];
+% idx_c = [ones(1, start_col - 1), 1:N, N * ones(1, pad_N - start_col - N + 1)];
+% U_pad = U_base(idx_r, idx_c);
 
 % --- 6. 频率坐标网格 ---
 du = 1 / (pad_N * sampling_rate);
