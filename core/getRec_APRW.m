@@ -57,10 +57,17 @@ b = -0.13*a + 0.6;   %
 % b = 0;
 
 %% ---------- CCTV (Complex Total Variation) parameters ----------
-use_tv        = true;   % Toggle TV denoising
+use_tv        = false;   % Toggle TV denoising
 lam_tv        = 1e-2;   % Regularization parameter (tune this, e.g., 1e-3 to 5e-2)
 gam_tv        = 2;      % Gradient step size
-n_subiters_tv = 10;      % TV inner loops
+n_subiters_tv = 10;     % TV inner loops
+
+%% ---------- Support Constraint Parameters ----------
+use_support   = false;
+support_pad   = 30;     % 边缘有多少个像素受到支撑域压制
+win_r = tukeywin(mRow, 2*support_pad/mRow);
+win_c = tukeywin(nCol, 2*support_pad/nCol);
+SupportMask = win_r * win_c';
 %% ---------- Precompute propagation distances to each plane ----------
 % zSet(i) = distance from planei
 DistanceIntervalSet = DistanceIntervalSet(:).';
@@ -174,13 +181,10 @@ for iIte = 1 : nIterative
         ImgRec_record1 = ImgRec_record;
     end
     Stack  = cat(3, ImgRec_record1{:});
-
+    ImgRec = mean(Stack, 3);
     % 使用掩膜进行加权平均 (Mask-weighted Feedback)
-    % 对于那些在某些平面里因为平移而丢失视场（Mask=0）的像素，
-    % 我们不能把它们自由演化的无约束态也算进平均值里，否则会严重拖慢甚至扭曲边缘的收敛速度，导致畸变。
-    % 这里我们用加权平均，确保每个像素只由真正“看见”它的平面来更新！
-    MaskStack = cat(3, MNZ_result.ValidMask{:});
-    ImgRec = sum(Stack .* MaskStack, 3) ./ max(sum(MaskStack, 3), 1e-6);
+    % MaskStack = cat(3, MNZ_result.ValidMask{:});
+    % ImgRec = sum(Stack .* MaskStack, 3) ./ max(sum(MaskStack, 3), 1e-6);
 
     % ================== TV Denoising Proximal Update ==================
     if use_tv
@@ -195,13 +199,17 @@ for iIte = 1 : nIterative
         end
         ImgRec = ImgRec - gam_tv * DTf(w_est);
     end
-    % ==================================================================
-
     % ================== 物理约束 (Physical Constraints) ==================
     % Absorption Constraint (吸收约束):
     % 真实的纯相位或弱吸收物体，其透射率振幅物理上不能超过 1（不能放大光）。
     % 给予 1.05 的微小宽容度，防止算法为了强行拟合误差而在图像中产生极其刺眼的高亮噪点。
     ImgRec = min(abs(ImgRec), 1.05) .* exp(1j * angle(ImgRec));
+
+    % Support Constraint (支撑域约束):
+    % 模仿 CCTV，将边缘区域的物体透射率平滑压制为 0，切断孪生像在背景区域的蔓延路径。
+    if use_support
+        ImgRec = ImgRec .* cast(SupportMask, 'like', ImgRec);
+    end
     % ==================================================================
 
     %% ---------- Record & save results ----------
@@ -255,13 +263,56 @@ for iIte = 1 : nIterative
         ampObj = abs(Object);
         phsObj = angle(Object);
 
-        imwrite(imadjust(mat2gray(ampObj)), fullfile(foldername, sprintf("Object_amp_iter%04d.png", iIte)));
-        imwrite(mat2gray(phsObj),          fullfile(foldername, sprintf("Object_phs_iter%04d.png", iIte)));
+        % 使用 imadjust 拉伸对比度
+        amp_gray = (mat2gray(ampObj));
+        phs_uint8 = (mat2gray(phsObj));
+
+
+        pad_r = max(1, round(size(phs_uint8, 1) * 0.2));
+        pad_c = max(1, round(size(phs_uint8, 2) * 0.2));
+        phs_center = phs_uint8(pad_r:end-pad_r, pad_c:end-pad_c);
+
+        v_min = prctile(double(phs_center(:)), 1);
+        v_max = prctile(double(phs_center(:)), 99);
+        if v_max == v_min
+            v_max = v_min + 1e-5;
+        end
+
+        pad_r = max(1, round(size(amp_gray, 1) * 0.2));
+        pad_c = max(1, round(size(amp_gray, 2) * 0.2));
+        amp_center = amp_gray(pad_r:end-pad_r, pad_c:end-pad_c);
+
+        amp_min = prctile(double(amp_center(:)), 1);
+        amp_max = prctile(double(amp_center(:)), 99);
+        if amp_max == amp_min
+            amp_max = amp_min + 1e-5;
+        end
+
+        % 归一化并截断
+        data_norm = (double(phs_uint8) - v_min) / (v_max - v_min);
+        data_norm(data_norm < 0) = 0;
+        data_norm(data_norm > 1) = 1;
+
+        amp_norm = (double(amp_gray) - amp_min) / (amp_max - amp_min);
+        amp_norm(amp_norm < 0) = 0;
+        amp_norm(amp_norm > 1) = 1;
+
+        phs_gray_stretched = im2uint8(data_norm);
+        amp_gray_stretched = im2uint8(amp_norm);
+
+        imwrite(amp_gray_stretched, fullfile(foldername, sprintf("Object_amp_iter%04d.png", iIte)));
+        imwrite(phs_gray_stretched, fullfile(foldername, sprintf("Object_phs_iter%04d.png", iIte)));
+
+        % Save phase with hot colormap
+        cmap = hot(256);
+        img_rgb = ind2rgb(round(data_norm * 255), cmap);
+        imwrite(img_rgb, fullfile(foldername, sprintf("Object_phs_hot_iter%04d.png", iIte)));
 
         % Quick view
         hFigObj = figure('Name', sprintf('Object @ Iter %d', iIte));
-        subplot(1,2,1), imshow(ampObj, []), xlabel("Object_amp"), axis image
-        subplot(1,2,2), imshow(mat2gray(phsObj)), xlabel("Object_phs"), axis image
+        subplot(1,3,1), imshow(amp_gray, []), xlabel("Object_amp"), axis image
+        subplot(1,3,2), imshow(phs_gray_stretched), xlabel("Object_phs"), axis image
+        subplot(1,3,3), imshow(img_rgb), xlabel("Object_phs (hot)"), axis image
         drawnow;
         close(hFigObj);
 

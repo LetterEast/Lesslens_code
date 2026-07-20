@@ -21,6 +21,8 @@ max_shift_y_pixels = abs(DistanceInterval * ky);
 % 加 20 像素余量，确保卷边(Wrap-around)只发生在 Padding 区域内
 padY = ceil(max_shift_y_pixels) + 20;
 padX = ceil(max_shift_x_pixels) + 20;
+padY = 0;
+padX = 0;
 
 mRow_pad = mRow + 2*padY;
 nCol_pad = nCol + 2*padX;
@@ -57,7 +59,7 @@ for i = 2:num_img
     s_y = ShiftY / PixelSize;
 
     % ================== 额外增加四周各 5 像素的强制掩膜 (方便测试右侧伪影，测试完可注释掉) ==================
-    extra_pad = 15;
+    extra_pad = 0;
     col_start = max(1 + extra_pad, round(1 + s_x) + extra_pad);
     col_end   = min(nCol - extra_pad, round(nCol + s_x) - extra_pad);
     row_start = max(1 + extra_pad, round(1 + s_y) + extra_pad);
@@ -67,7 +69,7 @@ for i = 2:num_img
     mask_x = zeros(1, nCol);
     mask_y = zeros(mRow, 1);
 
-    trans = 50;
+    trans = 0;
     if col_end > col_start
         mask_x(col_start : col_end) = 1;
         t = min(trans, floor((col_end - col_start)/2));
