@@ -19,7 +19,7 @@ function newU = propGPU(U, sampling_rate, lambda, z, x0, y0)
 if nargin < 5
     x0 = 0; y0 = 0;
 end
-
+x0 = 0; y0 = 0;
 [M, N] = size(U);
 useGPU = (gpuDeviceCount > 0);
 if useGPU && ~isa(U, 'gpuArray')
@@ -57,7 +57,7 @@ U_base = U_base .* W_spatial;
 % --- 5. 边缘复制扩充 (替代原本的补零) ---
 % 纯补零会在边缘产生巨大的阶跃（从背景亮度突然掉到 0），传播时会产生强烈的菲涅尔衍射波纹（吉布斯振铃）侵入原图边缘
 % 边缘复制扩充（Replicate Padding）可以完美避免这种阶跃
-pad_factor = 4; % 增加补零系数，防止大衍射角下的卷边问题
+pad_factor = 1; % 增加补零系数，防止大衍射角下的卷边问题
 pad_M = M * pad_factor;
 pad_N = N * pad_factor;
 
@@ -65,13 +65,13 @@ start_row = floor((pad_M - M)/2) + 1;
 start_col = floor((pad_N - N)/2) + 1;
 
 % --- 方案 A: 纯零填充 (测试用) ---
-U_pad = zeros(pad_M, pad_N, 'like', U_base);
-U_pad(start_row : start_row+M-1, start_col : start_col+N-1) = U_base;
+% U_pad = zeros(pad_M, pad_N, 'like', U_base);
+% U_pad(start_row : start_row+M-1, start_col : start_col+N-1) = U_base;
 
 % --- 方案 B: 边缘复制扩充 (原本的代码，效果好可随时切回) ---
-% idx_r = [ones(1, start_row - 1), 1:M, M * ones(1, pad_M - start_row - M + 1)];
-% idx_c = [ones(1, start_col - 1), 1:N, N * ones(1, pad_N - start_col - N + 1)];
-% U_pad = U_base(idx_r, idx_c);
+idx_r = [ones(1, start_row - 1), 1:M, M * ones(1, pad_M - start_row - M + 1)];
+idx_c = [ones(1, start_col - 1), 1:N, N * ones(1, pad_N - start_col - N + 1)];
+U_pad = U_base(idx_r, idx_c);
 
 % --- 6. 频率坐标网格 ---
 du = 1 / (pad_N * sampling_rate);

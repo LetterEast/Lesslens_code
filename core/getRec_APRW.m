@@ -49,24 +49,24 @@ n_img = length(img_set);
 % If you padded/canvas-embedded images before propagation, MarginX/Y can crop back
 MarginX = 0;
 MarginY = 0;
+use_crop = true;
 
 %% ---------- Weighted feedback coefficients ----------
 
 a = 0.7;
 b = -0.13*a + 0.6;   %
-% b = 0;
 
 %% ---------- CCTV (Complex Total Variation) parameters ----------
-use_tv        = false;   % Toggle TV denoising
+use_tv        = true;   % Toggle TV denoising
 lam_tv        = 1e-2;   % Regularization parameter (tune this, e.g., 1e-3 to 5e-2)
 gam_tv        = 2;      % Gradient step size
-n_subiters_tv = 10;     % TV inner loops
+n_subiters_tv = 20;     % TV inner loops
 
 %% ---------- Support Constraint Parameters ----------
-use_support   = false;
-support_pad   = 30;     % 边缘有多少个像素受到支撑域压制
-win_r = tukeywin(mRow, 2*support_pad/mRow);
-win_c = tukeywin(nCol, 2*support_pad/nCol);
+use_support = true;
+support_pad = 30;                                  % 边缘有多少个像素受到支撑域压制
+win_r       = tukeywin(mRow, 2*support_pad/mRow);
+win_c       = tukeywin(nCol, 2*support_pad/nCol);
 SupportMask = win_r * win_c';
 %% ---------- Precompute propagation distances to each plane ----------
 % zSet(i) = distance from planei
@@ -81,8 +81,6 @@ for iImg = 2:n_img
     DistanceInterval = DistanceInterval + DistanceIntervalSet(iImg);
     zSet(iImg) = DistanceInterval;
 end
-
-
 
 %% ---------- Create a unique result root folder ----------
 runStamp = datestr(now, 'yyyymmdd_HHMMSS');
@@ -108,41 +106,61 @@ ax2 = subplot(1,2,2, 'Parent', hFig);
 hAmp = imshow(zeros(mRow,nCol), [], 'Parent', ax1); title(ax1, 'Amplitude');
 hPhs = imshow(zeros(mRow,nCol), [], 'Parent', ax2); title(ax2, 'Phase');
 
+%% ---------- Precompute Illum_CCD (True Spherical Wave at CCD plane) ----------
+k0_wave_ccd = 2 * pi / WaveLength;
+x_vec_ccd = -nCol/2 * PixelSize : PixelSize : (nCol/2 - 1) * PixelSize;
+y_vec_ccd = -mRow/2 * PixelSize : PixelSize : (mRow/2 - 1) * PixelSize;
+[X_ccd, Y_ccd] = meshgrid(x_vec_ccd, y_vec_ccd);
+LEDX_ccd = MNZ_result.M * PixelSize;
+LEDY_ccd = MNZ_result.N * PixelSize;
+r_ccd = sqrt((X_ccd - LEDX_ccd).^2 + (Y_ccd - LEDY_ccd).^2 + D_LED2CCD^2);
+Illum_CCD = exp(1j * k0_wave_ccd .* r_ccd);
+
 %% ---------- Reconstruction process ----------
 tic;
 DistanceInterval = 0;
 zSet = zeros(n_img,1);
-for iIte = 1 : nIterative
+R_history = zeros(nIterative, 1);  % 用于记录每一次迭代的 R-factor
 
+for iIte = 1 : nIterative
     % One iteration: build object guesses for all planes 1..N
     ImgRec_record = cell(1, n_img);
 
+    err_num = 0;
+    err_den = 0;
+
     for iImg = 1 : n_img
         if iIte == 1
-            Interval = DistanceIntervalSet(iImg);
+            Interval         = DistanceIntervalSet(iImg);
             DistanceInterval = Interval + DistanceInterval;
-            zSet(iImg) = DistanceInterval;
+            zSet(iImg)       = DistanceInterval;
+
         end
 
 
         % Current propagation distance from plane#1 to plane#iImg
-        z = zSet(iImg);      % [m]
-        z_mm = z * 1e3;      % [mm] for display
+        z    = zSet(iImg);  % [m]
+        z_mm = z * 1e3;     % [mm] for display
 
         fprintf('Plane 1 -> %d propagation distance: %0.3f mm\n', iImg, z_mm);
 
         % (1) Forward propagate to detector plane iImg
         x = -MNZ_result.M*PixelSize*(z/D_LED2CCD);
         y = -MNZ_result.N*PixelSize*(z/D_LED2CCD);
+
         lightOnDetector = propGPU(ImgRec, PixelSize, WaveLength, z, x, y);
 
         % (2) Amplitude replacement
-        % thisAmpImg = img_set{iImg}.^0.5;
-        % Mask = MNZ_result.ValidMask{iImg};
-        % new_amp = Mask .* thisAmpImg + (1 - Mask) .* abs(lightOnDetector);
-        % lightOnDetector = new_amp .* exp(1j .* angle(lightOnDetector));
-        thisAmpImg = img_set{iImg}.^0.5;
-        lightOnDetector = thisAmpImg .* exp(1j .* angle(lightOnDetector));
+        thisAmpImg      = img_set{iImg}.^0.5;
+
+        % --- 计算 R-factor 累加值 (使用 || A_hat - A ||_F^2 / || A ||_F^2) ---
+        predictedAmp = abs(lightOnDetector);
+        thisAmpImg_gpu = cast(thisAmpImg, 'like', predictedAmp);
+        diffAmp = predictedAmp - thisAmpImg_gpu;
+        err_num = err_num + gather(sum(diffAmp(:).^2));
+        err_den = err_den + gather(sum(thisAmpImg_gpu(:).^2));
+
+        lightOnDetector = thisAmpImg_gpu .* exp(1j .* angle(lightOnDetector));
 
         % (3) Back propagate to object plane => g_k(n)
         ImgRec_record{iImg} = propGPU(lightOnDetector, PixelSize, WaveLength, -z, -x, -y);
@@ -163,8 +181,8 @@ for iIte = 1 : nIterative
         AmpImgRec = gather(abs(roi));
         PhsImgRec = gather(angle(roi));
 
-        AmpImgRec = mat2gray(AmpImgRec);
-        PhsImgRec = mat2gray(PhsImgRec);
+        AmpImgRec  = mat2gray(AmpImgRec);
+        PhsImgRec  = mat2gray(PhsImgRec);
         title_name = sprintf('APRW (weighted feedback), Iter=%d, Img=%d, z=%0.3f mm', iIte, iImg, z_mm);
 
         set(hAmp, 'CData', AmpImgRec); xlabel(ax1, 'Amplitude'); title(ax1, title_name);
@@ -181,24 +199,15 @@ for iIte = 1 : nIterative
         ImgRec_record1 = ImgRec_record;
     end
     Stack  = cat(3, ImgRec_record1{:});
-    ImgRec = mean(Stack, 3);
+    % ImgRec = mean(Stack, 3);
+    bg_val = mean(img_set{1}(:).^0.5);
+
     % 使用掩膜进行加权平均 (Mask-weighted Feedback)
-    % MaskStack = cat(3, MNZ_result.ValidMask{:});
-    % ImgRec = sum(Stack .* MaskStack, 3) ./ max(sum(MaskStack, 3), 1e-6);
+    MaskStack                = cat(3, MNZ_result.ValidMask{:});
+    TotalWeight              = sum(MaskStack, 3);
+    ImgRec                   = (sum(Stack .* MaskStack, 3) + 1e-2 * Illum_CCD) ./ (TotalWeight + 1e-2);
+    ImgRec(TotalWeight == 0) = bg_val;
 
-    % ================== TV Denoising Proximal Update ==================
-    if use_tv
-        v_est = zeros(size(ImgRec,1), size(ImgRec,2), 2, 'like', ImgRec);
-        w_est = zeros(size(ImgRec,1), size(ImgRec,2), 2, 'like', ImgRec);
-
-        for subiter = 1:n_subiters_tv
-            w_next = v_est + (1 / (8 * gam_tv)) * Df( ImgRec - gam_tv * DTf(v_est) );
-            w_next = min(abs(w_next), lam_tv) .* exp(1j * angle(w_next));
-            v_est = w_next + (subiter / (subiter + 3)) * (w_next - w_est);
-            w_est = w_next;
-        end
-        ImgRec = ImgRec - gam_tv * DTf(w_est);
-    end
     % ================== 物理约束 (Physical Constraints) ==================
     % Absorption Constraint (吸收约束):
     % 真实的纯相位或弱吸收物体，其透射率振幅物理上不能超过 1（不能放大光）。
@@ -206,14 +215,29 @@ for iIte = 1 : nIterative
     ImgRec = min(abs(ImgRec), 1.05) .* exp(1j * angle(ImgRec));
 
     % Support Constraint (支撑域约束):
-    % 模仿 CCTV，将边缘区域的物体透射率平滑压制为 0，切断孪生像在背景区域的蔓延路径。
     if use_support
         ImgRec = ImgRec .* cast(SupportMask, 'like', ImgRec);
     end
-    % ==================================================================
+
+    % --- 评价当前迭代的 R-factor ---
+    R_history(iIte) = sqrt(err_num / err_den);
+    fprintf('=== Iteration %d: R-factor = %.6f ===\n', iIte, R_history(iIte));
+
+    % --- 判断是否收敛 ---
+    is_converged = false;
+    if iIte > 2
+        d1 = abs(R_history(iIte) - R_history(iIte-1));
+        d2 = abs(R_history(iIte-1) - R_history(iIte-2));
+        % 如果连续两次迭代 R-factor 的变化极小，认为收敛
+        if d1 < 5e-3 && d2 < 5e-3
+            is_converged = true;
+            fprintf('R-factor 变化极小，算法收敛，将执行最后一次保存并提前停止！\n');
+        end
+    end
 
     %% ---------- Record & save results ----------
-    if (mod(iIte, iIte_record) == 0) && (count <= record_num)
+    % 只要满足记录条件，或者是最后一次迭代，或者是已经收敛，就执行保存
+    if (mod(iIte, iIte_record) == 0) || (iIte == nIterative) || is_converged
 
         % Subfolder for this recorded iteration
         foldername = fullfile(Parent_foldername, sprintf("Iter_%04d", iIte));
@@ -224,62 +248,99 @@ for iIte = 1 : nIterative
 
         % calibrated sample-to-CCD distance
 
-        % if iIte == iIte_record
-        %     Ishow = gather(mat2gray(abs(ImgRec)));
-        %     figure,[~, rect] = imcrop(Ishow);close
-        %     % rect = [1, 1, size(ImgRec,2)-1, size(ImgRec,1)-1]; % Auto-crop full image for batch
-        % end
-        % rect = round(rect);                      % [x y w h]
-        % x1 = max(1, floor(rect(1)) + 1);
-        % y1 = max(1, floor(rect(2)) + 1);
-        % w  = max(1, rect(3));
-        % h  = max(1, rect(4));
-
-        % x2 = min(size(ImgRec,2), x1 + w - 1);
-        % y2 = min(size(ImgRec,1), y1 + h - 1);
-
-        % ImgRec_crop = ImgRec(y1:y2, x1:x2);
-        ImgRec_crop = ImgRec;
+        if iIte == iIte_record & use_crop
+            Ishow = gather(mat2gray(abs(ImgRec)));
+            figure,[~, rect] = imcrop(Ishow);close
+        end
+        if use_crop
+            rect = round(rect);                 % [x y w h]
+            x1 = max(1, floor(rect(1)) + 1);
+            y1 = max(1, floor(rect(2)) + 1);
+            w  = max(1, rect(3));
+            h  = max(1, rect(4));
+            x2 = min(size(ImgRec,2), x1 + w - 1);
+            y2 = min(size(ImgRec,1), y1 + h - 1);
+            ImgRec_crop = ImgRec(y1:y2, x1:x2);
+        else
+            ImgRec_crop = ImgRec;
+        end
 
         D_Sample2CCD = D_Sample2CCD_Calibration(ImgRec_crop, ParaD_Sample2CCD, MainPara, foldername);
-        %
-        % D_Sample2CCD = D_Sample2CCD_Calibration(ImgRec, ParaD_Sample2CCD, MainPara, foldername);
+
 
         % Save metadata for reproducibility
         metaPath = fullfile(foldername, "meta.mat");
         save(metaPath, 'MainPara', 'DistanceIntervalSet', 'zSet', 'a', 'b', 'D_Sample2CCD', 'iIte');
 
         % Back to object plane and save Object
-        save(fullfile(foldername,"ImgRec.mat"), 'ImgRec');
-        % 反向传播样品面时去除球面波
-        ImgRec_planeWave = ImgRec .* exp(-1j * angle(IllumPattern));
-        % ImgRec_planeWave = ImgRec;
-        Object = back2Object(ImgRec_planeWave, D_Sample2CCD, MainPara);
 
+        save(fullfile(foldername,"ImgRec.mat"), 'ImgRec');
+        % 1.反向传播到样品面
+        Object_full = back2Object(ImgRec, D_Sample2CCD, MainPara);
+
+        % 2. 计算在“样品面”处的真实照明球面波
+        % 样品面距离点光源 (LED) 的距离为 D_LED2CCD - D_Sample2CCD
+        D_LED2Sample         = D_LED2CCD - D_Sample2CCD;
+        k0_wave              = 2*pi/WaveLength;
+        x_vec                = -nCol/2*(PixelSize):PixelSize:(nCol/2-1)*PixelSize;
+        y_vec                = -mRow/2*PixelSize:PixelSize:(mRow/2-1)*PixelSize;
+        [Object_X, Object_Y] = meshgrid(x_vec, y_vec);
+        LEDX                 = MNZ_result.M * PixelSize;
+        LEDY                 = MNZ_result.N * PixelSize;
+
+        r_sample     = sqrt((Object_X - LEDX).^2 + (Object_Y - LEDY).^2 + D_LED2Sample^2);
+        Illum_Sample = exp(1j * k0_wave .* r_sample);
+
+        % 3. 在样品面上，去除球面波的相位，得到真实的纯物体透射率
+        Object = Object_full .* exp(-1j * angle(Illum_Sample));
+
+
+        if use_tv
+            v_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
+            w_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
+
+            for subiter = 1:n_subiters_tv
+                w_next = v_est + (1 / (8 * gam_tv)) * Df( Object  - gam_tv * DTf(v_est) );
+                w_next = min(abs(w_next), lam_tv) .* exp(1j * angle(w_next));
+                v_est  = w_next + (subiter / (subiter + 3)) * (w_next - w_est);
+                w_est  = w_next;
+            end
+            Object = Object - gam_tv * DTf(w_est);
+            Object = min(abs(Object), 1.05) .* exp(1j * angle(Object));
+        end
+        if use_support
+            ImgRec = ImgRec .* cast(SupportMask, 'like', ImgRec);
+        end
 
         save(fullfile(foldername, sprintf("Object_iter%04d.mat", iIte)), 'Object');
+
+
+        % 3. 外围盲区相位置零
+        Object(TotalWeight == 0) = abs(Object(TotalWeight == 0));
+        % ---------------------------------------------
 
         % Save amplitude / phase images
         ampObj = abs(Object);
         phsObj = angle(Object);
+
 
         % 使用 imadjust 拉伸对比度
         amp_gray = (mat2gray(ampObj));
         phs_uint8 = (mat2gray(phsObj));
 
 
-        pad_r = max(1, round(size(phs_uint8, 1) * 0.2));
-        pad_c = max(1, round(size(phs_uint8, 2) * 0.2));
+        pad_r      = max(1, round(size(phs_uint8, 1) * 0.25));
+        pad_c      = max(1, round(size(phs_uint8, 2) * 0.25));
         phs_center = phs_uint8(pad_r:end-pad_r, pad_c:end-pad_c);
 
-        v_min = prctile(double(phs_center(:)), 1);
-        v_max = prctile(double(phs_center(:)), 99);
+        v_min  = prctile(double(phs_center(:)), 1);
+        v_max  = prctile(double(phs_center(:)), 99);
         if v_max == v_min
-            v_max = v_min + 1e-5;
+            v_max  = v_min + 1e-5;
         end
 
-        pad_r = max(1, round(size(amp_gray, 1) * 0.2));
-        pad_c = max(1, round(size(amp_gray, 2) * 0.2));
+        pad_r      = max(1, round(size(amp_gray, 1) * 0.2));
+        pad_c      = max(1, round(size(amp_gray, 2) * 0.2));
         amp_center = amp_gray(pad_r:end-pad_r, pad_c:end-pad_c);
 
         amp_min = prctile(double(amp_center(:)), 1);
@@ -297,8 +358,9 @@ for iIte = 1 : nIterative
         amp_norm(amp_norm < 0) = 0;
         amp_norm(amp_norm > 1) = 1;
 
-        phs_gray_stretched = im2uint8(data_norm);
-        amp_gray_stretched = im2uint8(amp_norm);
+        phs_gray_stretched = mat2gray(data_norm);
+        amp_gray_stretched = mat2gray(amp_norm);
+
 
         imwrite(amp_gray_stretched, fullfile(foldername, sprintf("Object_amp_iter%04d.png", iIte)));
         imwrite(phs_gray_stretched, fullfile(foldername, sprintf("Object_phs_iter%04d.png", iIte)));
@@ -318,7 +380,18 @@ for iIte = 1 : nIterative
 
         count = count + 1;
     end
+
+    % --- 如果判定已收敛，跳出迭代循环 ---
+    if exist('is_converged', 'var') && is_converged
+        break;
+    end
 end
+
+% 绘制收敛曲线
+figure('Name', 'R-factor Convergence');
+plot(1:iIte, R_history(1:iIte), '-o', 'LineWidth', 2);
+title('R-factor Convergence Curve');
+xlabel('Iteration'); ylabel('R-factor (L2 Norm)'); grid on;
 
 toc;
 disp('finish reconstruction');
