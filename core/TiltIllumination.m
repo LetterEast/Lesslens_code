@@ -11,8 +11,17 @@ DistanceInterval = 0;
 for i = 2:num_img
     DistanceInterval = DistanceInterval + DistanceIntervalSet(i);
 end
+% >>> SHIFT-PIXEL-DIVIDE-BY-PIXELSIZE-OLD-BEGIN (Codex)
+% % DistanceInterval*kx/ky was incorrectly treated as a physical displacement.
+% max_shift_x_pixels = abs(DistanceInterval * kx / PixelSize);
+% max_shift_y_pixels = abs(DistanceInterval * ky / PixelSize);
+% <<< SHIFT-PIXEL-DIVIDE-BY-PIXELSIZE-OLD-END (Codex)
+% >>> SHIFT-PIXEL-UNIT-RESTORE-BEGIN (Codex)
+% M/N are pixel coordinates because physical LED position is M/N * PixelSize.
+% Therefore DistanceInterval*kx/ky already gives displacement in pixels.
 max_shift_x_pixels = abs(DistanceInterval * kx);
 max_shift_y_pixels = abs(DistanceInterval * ky);
+% <<< SHIFT-PIXEL-UNIT-RESTORE-END (Codex)
 % 加 20 像素余量
 padY = ceil(max_shift_y_pixels) + 200;
 padX = ceil(max_shift_x_pixels) + 200;
@@ -107,7 +116,14 @@ for i = 2:num_img
     end
     MNZ_result.ValidMaskHard{i} = hard_mask;
 end
-MNZ_result.OutputValidMask = any(cat(3, MNZ_result.ValidMaskHard{:}), 3);
+% OUTPUT-FOV-MASKS-OLD: MNZ_result.OutputValidMask = any(cat(3, MNZ_result.ValidMaskHard{:}), 3);
+% >>> OUTPUT-FOV-MASKS-BEGIN (Codex)
+MNZ_result.CoverageCount = sum(cat(3, MNZ_result.ValidMaskHard{:}), 3);
+MNZ_result.UnionMask = MNZ_result.CoverageCount >= 1;
+MNZ_result.TrustedMask = MNZ_result.CoverageCount >= 2;
+% Keep the main reconstruction on the maximum union field of view.
+MNZ_result.OutputValidMask = MNZ_result.UnionMask;
+% <<< OUTPUT-FOV-MASKS-END (Codex)
 MNZ_result.M = 0;
 MNZ_result.N = 0;
 end

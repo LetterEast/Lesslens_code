@@ -19,7 +19,7 @@ D_LED2Sample = MNZ_result.Z;
 %% Sphere Wave
 
 r = sqrt((Object_X - LEDX).^2 + (Object_Y - LEDY).^2 + (D_LED2Sample)^2);
-IllumPaSet = exp(1i*k0.*r) ./ r;
+IllumPaSet = exp(1i*k0.*r) ;
 
 %% imshow
 % phi = angle(IllumPaSet);

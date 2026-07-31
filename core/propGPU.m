@@ -1,4 +1,4 @@
-function newU = propGPU(U, sampling_rate, lambda, z, x0, y0)
+function newU = propGPU(U, sampling_rate, lambda, z, x0, y0, validSize)
 % =========================================================================
 % Copyright (c) 2026 [JiNan University]
 %
@@ -16,11 +16,14 @@ function newU = propGPU(U, sampling_rate, lambda, z, x0, y0)
 % Licensed under the MIT License.
 % =========================================================================
 
-if nargin < 5
-    x0 = 0; y0 = 0;
-end
-x0 = 0; y0 = 0;
 [M, N] = size(U);
+if nargin < 5 || isempty(x0), x0 = 0; end
+if nargin < 6 || isempty(y0), y0 = 0; end
+if nargin < 7 || isempty(validSize), validSize = [M, N]; end
+x0 = 0;
+validateattributes(validSize, {'numeric'}, ...
+    {'vector', 'numel', 2, 'positive', 'finite'});
+validSize = min(round(validSize(:).'), [M, N]);
 useGPU = (gpuDeviceCount > 0);
 if useGPU && ~isa(U, 'gpuArray')
     U = gpuArray(U);
@@ -49,7 +52,7 @@ end
 U_base = U .* exp(-1i * 2 * pi * (fx * X + fy * Y));
 
 % --- 4. 空间域边缘平滑 ---
-win_width = 0.05;
+win_width = 0;
 W_spatial = tukeywin(M, win_width) * tukeywin(N, win_width)';
 if useGPU, W_spatial = gpuArray(W_spatial); end
 U_base = U_base .* W_spatial;
@@ -57,7 +60,7 @@ U_base = U_base .* W_spatial;
 % --- 5. 边缘复制扩充 (替代原本的补零) ---
 % 纯补零会在边缘产生巨大的阶跃（从背景亮度突然掉到 0），传播时会产生强烈的菲涅尔衍射波纹（吉布斯振铃）侵入原图边缘
 % 边缘复制扩充（Replicate Padding）可以完美避免这种阶跃
-pad_factor = 1; % 增加补零系数，防止大衍射角下的卷边问题
+pad_factor = 2; % 增加补零系数，防止大衍射角下的卷边问题
 pad_M = M * pad_factor;
 pad_N = N * pad_factor;
 
@@ -98,25 +101,28 @@ H_AS = zeros(size(w_sq), 'like', w_sq);
 H_AS(valid_w) = exp(1i * (2 * pi / lambda) * z * sqrt(w_sq(valid_w)));
 
 % 软切断带限掩模 (Matsushima 2010 严格带限 Shifted-AS mask)
-X_len = pad_N * sampling_rate;
-Y_len = pad_M * sampling_rate;
+% The band limit is determined by the measured/valid FOV, not by the
+% artificial computational padding around it.
+X_len = validSize(2) * sampling_rate;
+Y_len = validSize(1) * sampling_rate;
 
 u1 = (-x0 + X_len/2) / lambda / sqrt(z^2 + (-x0 + X_len/2)^2);
 u2 = (-x0 - X_len/2) / lambda / sqrt(z^2 + (-x0 - X_len/2)^2);
-u_max = max(u1, u2); u_min = min(u1, u2);
+f_nyquist = 1 / (2 * sampling_rate);
+u_max = min(max(u1, u2), f_nyquist);
+u_min = max(min(u1, u2), -f_nyquist);
 
 v1 = (-y0 + Y_len/2) / lambda / sqrt(z^2 + (-y0 + Y_len/2)^2);
 v2 = (-y0 - Y_len/2) / lambda / sqrt(z^2 + (-y0 - Y_len/2)^2);
-v_max = max(v1, v2); v_min = min(v1, v2);
+v_max = min(max(v1, v2), f_nyquist);
+v_min = max(min(v1, v2), -f_nyquist);
 
-u_c = (u_max + u_min) / 2; u_w = (u_max - u_min) / 2;
-v_c = (v_max + v_min) / 2; v_w = (v_max - v_min) / 2;
-
-rho = sqrt(((U_true - u_c)./u_w).^2 + ((V_true - v_c)./v_w).^2);
-mask = ones(size(rho), 'like', rho);
-idx = rho > 0.8 & rho <= 1.0;
-mask(idx) = 0.5 * (1 + cos(pi * (rho(idx) - 0.8) / 0.2));
-mask(rho > 1.0) = 0;
+if abs(z) <= eps(class(z))
+    mask = ones(size(U_true), 'like', U_true);
+else
+    mask = softRectBandlimit( ...
+        U_true, V_true, u_min, u_max, v_min, v_max, 0.1);
+end
 
 % --- 9. 傅里叶平移定理 (核心物理转移) ---
 H_shift = exp(-1i * 2 * pi * (U_true * x0 + V_true * y0));
@@ -135,4 +141,28 @@ if useGPU
     wait(gpuDevice);
     newU = gather(newU);
 end
+end
+function mask = softRectBandlimit(U, V, uMin, uMax, vMin, vMax, rollFraction)
+% Separable Matsushima passband with a cosine transition at each boundary.
+maskU = softBand1D(U, uMin, uMax, rollFraction);
+maskV = softBand1D(V, vMin, vMax, rollFraction);
+mask = maskU .* maskV;
+end
+
+function weight = softBand1D(freq, fMin, fMax, rollFraction)
+weight = zeros(size(freq), 'like', freq);
+bandwidth = fMax - fMin;
+if bandwidth <= 0
+    return;
+end
+rollWidth = max(bandwidth * rollFraction, eps(class(bandwidth)));
+innerMin = min(fMin + rollWidth, (fMin + fMax) / 2);
+innerMax = max(fMax - rollWidth, (fMin + fMax) / 2);
+weight(freq >= innerMin & freq <= innerMax) = 1;
+idx = freq >= fMin & freq < innerMin;
+weight(idx) = 0.5 * (1 - cos(pi * (freq(idx) - fMin) / ...
+    max(innerMin - fMin, eps(class(bandwidth)))));
+idx = freq > innerMax & freq <= fMax;
+weight(idx) = 0.5 * (1 + cos(pi * (freq(idx) - innerMax) / ...
+    max(fMax - innerMax, eps(class(bandwidth)))));
 end

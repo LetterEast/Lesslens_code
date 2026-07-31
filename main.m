@@ -6,15 +6,16 @@ projectRoot = fileparts(mfilename('fullpath'));
 addpath(genpath(projectRoot));
 
 %% User parameters
-cfg.data.rawFolder = 'D:\Desktop\data\2026\4.20\1.0';
-cfg.data.calibrationFile = 'D:\Desktop\data\2026\4.20\MNZ_result.mat';
-cfg.data.numImages = 5;
+cfg.data.rawFolder = 'D:\Desktop\data\2026\6.17\Fish_gill_UD\UD';
+cfg.data.calibrationFile = 'D:\Desktop\data\2026\6.17\MNZ_result.mat';
+cfg.data.numImages = 11;
 
 cfg.optics.wavelength = 514e-9;       % [m]
 cfg.optics.pixelSize  = 3e-6;         % [m/pixel]
-cfg.distance.steps = [0, ones(1, cfg.data.numImages - 1)] * 1e-3;
+% cfg.distance.steps = [0, ones(1, cfg.data.numImages - 1)] * 1e-3;
+cfg.distance.steps = [0:0.1e-3:1e-3]; % [m]
 
-cfg.reconstruction.iterations  = 9;
+cfg.reconstruction.iterations  = 18;
 cfg.reconstruction.recordEvery = 3;
 cfg.output.cropToValidFOV     = true;
 cfg.output.validMaskThreshold = 0.01;
