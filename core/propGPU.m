@@ -49,7 +49,7 @@ end
 U_base = U .* exp(-1i * 2 * pi * (fx * X + fy * Y));
 
 % --- 4. 空间域边缘平滑 ---
-win_width = 0;
+win_width = 0.05;
 W_spatial = tukeywin(M, win_width) * tukeywin(N, win_width)';
 if useGPU, W_spatial = gpuArray(W_spatial); end
 U_base = U_base .* W_spatial;

@@ -18,10 +18,13 @@ padY = ceil(max_shift_y_pixels) + 200;
 padX = ceil(max_shift_x_pixels) + 200;
 mRow_pad = mRow + 2*padY;
 nCol_pad = nCol + 2*padX;
-fx_pad = (-nCol_pad/2 : nCol_pad/2-1) / (nCol_pad*PixelSize);
-fy_pad = (-mRow_pad/2 : mRow_pad/2-1) / (mRow_pad*PixelSize);
-[u_pad, v_pad] = meshgrid(fx_pad, fy_pad);
 out_img_set = cell(1,num_img);
+MNZ_result.orig_M = M;
+MNZ_result.orig_N = N;
+MNZ_result.orig_size = [mRow, nCol];
+MNZ_result.padSize = [padY, padX];
+MNZ_result.ValidMask = cell(1, num_img);
+MNZ_result.ValidMaskHard = cell(1, num_img);
 % 对第一张图 Padding
 out_img_set{1} = padarray(img_set{1}, [padY, padX], "replicate", 'both');
 % 生成第一张图的掩膜
@@ -45,6 +48,9 @@ if t > 0
     mask_y(row_end-t+1 : row_end) = flipud(ramp');
 end
 MNZ_result.ValidMask{1} = mask_y * mask_x;
+hard_mask = false(mRow_pad, nCol_pad);
+hard_mask(row_start:row_end, col_start:col_end) = true;
+MNZ_result.ValidMaskHard{1} = hard_mask;
 DistanceInterval = 0;
 for i = 2:num_img
     Interval = DistanceIntervalSet(i);
@@ -95,7 +101,13 @@ for i = 2:num_img
         end
     end
     MNZ_result.ValidMask{i} = mask_y * mask_x;
+    hard_mask = false(mRow_pad, nCol_pad);
+    if col_end >= col_start && row_end >= row_start
+        hard_mask(row_start:row_end, col_start:col_end) = true;
+    end
+    MNZ_result.ValidMaskHard{i} = hard_mask;
 end
+MNZ_result.OutputValidMask = any(cat(3, MNZ_result.ValidMaskHard{:}), 3);
 MNZ_result.M = 0;
 MNZ_result.N = 0;
 end

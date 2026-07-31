@@ -50,6 +50,16 @@ n_img = length(img_set);
 MarginX = 0;
 MarginY = 0;
 use_crop = true;
+outputOptions = struct( ...
+    'cropToValidFOV', true, ...
+    'validMaskThreshold', 0.01, ...
+    'zeroFillInvalid', true);
+if isfield(MainPara, 'Output')
+    optionNames = fieldnames(MainPara.Output);
+    for iOption = 1:numel(optionNames)
+        outputOptions.(optionNames{iOption}) = MainPara.Output.(optionNames{iOption});
+    end
+end
 
 %% ---------- Weighted feedback coefficients ----------
 
@@ -312,11 +322,22 @@ for iIte = 1 : nIterative
             ImgRec = ImgRec .* cast(SupportMask, 'like', ImgRec);
         end
 
+        % Keep the union of all shifted fields of view. For a non-rectangular
+        % union, invalid pixels in the smallest enclosing rectangle are zero.
+        outputValidMask = TotalWeight > outputOptions.validMaskThreshold;
+        if isfield(MNZ_result, 'OutputValidMask')
+            outputValidMask = logical(MNZ_result.OutputValidMask);
+        end
+        [Object, outputValidMask, outputBounds] = cropToValidFOV( ...
+            Object, outputValidMask, outputOptions);
+        save(fullfile(foldername, 'OutputFOV.mat'), ...
+            'outputValidMask', 'outputBounds');
+
         save(fullfile(foldername, sprintf("Object_iter%04d.mat", iIte)), 'Object');
 
 
         % 3. 外围盲区相位置零
-        Object(TotalWeight == 0) = abs(Object(TotalWeight == 0));
+        % Invalid pixels were zero-filled by cropToValidFOV above.
         % ---------------------------------------------
 
         % Save amplitude / phase images
@@ -395,6 +416,26 @@ xlabel('Iteration'); ylabel('R-factor (L2 Norm)'); grid on;
 
 toc;
 disp('finish reconstruction');
+end
+
+function [field, validMask, bounds] = cropToValidFOV(field, validMask, options)
+% Remove replicated padding without discarding synthetic-aperture content.
+if ~any(validMask(:))
+    error('Output valid mask is empty; check illumination shifts and padding.');
+end
+
+if options.cropToValidFOV
+    [rows, cols] = find(validMask);
+    bounds = [min(cols), min(rows), max(cols), max(rows)]; % [x1 y1 x2 y2]
+    field = field(bounds(2):bounds(4), bounds(1):bounds(3));
+    validMask = validMask(bounds(2):bounds(4), bounds(1):bounds(3));
+else
+    bounds = [1, 1, size(field, 2), size(field, 1)];
+end
+
+if options.zeroFillInvalid
+    field(~validMask) = 0;
+end
 end
 
 %% ---------- TV Denoising Helper Functions ----------
