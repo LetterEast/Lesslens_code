@@ -54,6 +54,15 @@ mainPara.MNZ_result       = MNZ_result;
 mainPara.Output           = cfg.output;
 mainPara.IllumSet = getMultiAngleIllum( ...
     imgSet{1}, MNZ_result, cfg.optics.pixelSize, cfg.optics.wavelength);
+% --- 在 main.m 调用 getRec_APRW 前面加上这段 ---
+figure('Name', '请用鼠标框选 TV 保护区 (选完双击框内部确认)');
+imshow(imgSet{1}, []);
+title('请框选鱼鳃区域（此区域TV弱以保留细节，区域外TV强以去噪）');
+rect = getrect; % 让用户用鼠标画框，返回 [x, y, 宽度, 高度]
+close;
 
+mainPara.TV_ROI = rect; % 传给算法
+% ----------------------------------------------
 Rec_nInterative = getRec_APRW( ...
     imgSet, mainPara, cfg.distance.steps, cfg.reconstruction.recordEvery);
+

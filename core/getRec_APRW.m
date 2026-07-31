@@ -204,7 +204,7 @@ for iIte = 1 : nIterative
         % diffAmp = predictedAmp - thisAmpImg_gpu;
         % err_num = err_num + gather(sum(diffAmp(:).^2));
         % err_den = err_den + gather(sum(thisAmpImg_gpu(:).^2));
-% 
+        %
         % lightOnDetector = thisAmpImg_gpu .* exp(1j .* angle(lightOnDetector));
         % <<< FULL-CANVAS-AMPLITUDE-REPLACEMENT-OLD-END
 
@@ -300,7 +300,7 @@ for iIte = 1 : nIterative
     ImgRec = min(abs(ImgRec), 1.05) .* exp(1j * angle(ImgRec));
     % <<< IMGREC-CONSTRAINT-FIX-END (Codex)
 
-    % Support Constraint 
+    % Support Constraint
     if use_support
         ImgRec = ImgRec .* cast(SupportMask, 'like', ImgRec);
     end
@@ -435,7 +435,7 @@ for iIte = 1 : nIterative
         % ADAPTIVE-TV-COVERAGE-OLD: LambdaMap = lam_tv_center + (lam_tv_edge - lam_tv_center) .* ...
         % ADAPTIVE-TV-COVERAGE-OLD: (1 - confidenceMap).^lam_tv_power;
         % ADAPTIVE-TV-COVERAGE-OLD: LambdaMap(~reliableTVMask) = 0;
-        % ADAPTIVE-TV-COVERAGE-OLD: 
+        % ADAPTIVE-TV-COVERAGE-OLD:
         % ADAPTIVE-TV-COVERAGE-OLD: validGradVertical = reliableTVMask & reliableTVMask([2:end,end],:);
         % ADAPTIVE-TV-COVERAGE-OLD: validGradVertical(end,:) = false;
         % ADAPTIVE-TV-COVERAGE-OLD: validGradHorizontal = reliableTVMask & reliableTVMask(:,[2:end,end]);
@@ -445,7 +445,7 @@ for iIte = 1 : nIterative
         % ADAPTIVE-TV-COVERAGE-OLD: lambdaHorizontal = max(LambdaMap, LambdaMap(:,[2:end,end]));
         % ADAPTIVE-TV-COVERAGE-OLD: LambdaGradient = cat(3, lambdaVertical, lambdaHorizontal);
         % ADAPTIVE-TV-COVERAGE-OLD: LambdaGradient(~validGradientMask) = 0;
-        % ADAPTIVE-TV-COVERAGE-OLD: 
+        % ADAPTIVE-TV-COVERAGE-OLD:
         % ADAPTIVE-TV-COVERAGE-OLD: v_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
         % ADAPTIVE-TV-COVERAGE-OLD: w_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
         % ADAPTIVE-TV-COVERAGE-OLD: LambdaGradientLike = cast(LambdaGradient, 'like', Object);
@@ -463,7 +463,7 @@ for iIte = 1 : nIterative
         % ADAPTIVE-TV-COVERAGE-OLD: Object(reliableTVMask) = Object_tv_candidate(reliableTVMask);
         % ADAPTIVE-TV-COVERAGE-OLD: Object(reliableTVMask) = min(abs(Object(reliableTVMask)), 1.05) .* ...
         % ADAPTIVE-TV-COVERAGE-OLD: exp(1j .* angle(Object(reliableTVMask)));
-        % ADAPTIVE-TV-COVERAGE-OLD: 
+        % ADAPTIVE-TV-COVERAGE-OLD:
         % ADAPTIVE-TV-COVERAGE-OLD: save(fullfile(foldername, sprintf('AdaptiveTV_iter%04d.mat', iIte)), ...
         % ADAPTIVE-TV-COVERAGE-OLD: 'coverageCount', 'confidenceMap', 'reliableTVMask', ...
         % ADAPTIVE-TV-COVERAGE-OLD: 'LambdaMap', 'LambdaGradient', 'lam_tv_center', ...
@@ -484,7 +484,7 @@ for iIte = 1 : nIterative
         %     maxCoverage = max(coverageCount(:));
         %     confidenceMap = coverageCount ./ max(maxCoverage, 1);
         %     reliableTVMask = coverageCount > 0;
-% 
+        %
         %     % Multi-plane relative disagreement. The reliable-center baseline
         %     % is removed so a global source change does not increase TV everywhere.
         %     residualFloor = 0.01 * mean(abs(ImgRec(reliableTVMask)).^2, 'all');
@@ -507,7 +507,7 @@ for iIte = 1 : nIterative
         %         uncertaintyScale = prctile(positiveUncertainty, 95);
         %     end
         %     uncertaintyMap = min(uncertaintyExcess ./ max(uncertaintyScale, eps), 1);
-% 
+        %
         %     % Keep the user's current limits and rise speed.
         %     lam_tv_center = lam_tv;
         %     lam_tv_edge =10 * lam_tv;
@@ -519,7 +519,7 @@ for iIte = 1 : nIterative
         %     riskMap = min(max(riskMap, 0), 1);
         %     LambdaMap = lam_tv_center + (lam_tv_edge - lam_tv_center) .* riskMap;
         %     LambdaMap(~reliableTVMask) = 0;
-% 
+        %
         %     % Df(:,:,1): y-gradient; Df(:,:,2): x-gradient. Read the calibrated
         %     % pre-shift source position so the direction weights follow the source.
         %     sourceM = MNZ_result.M;
@@ -534,7 +534,7 @@ for iIte = 1 : nIterative
         %         directionWeightY = 1;
         %         directionWeightX = 1;
         %     end
-% 
+        %
         %     validGradVertical = reliableTVMask & reliableTVMask([2:end,end],:);
         %     validGradVertical(end,:) = false;
         %     validGradHorizontal = reliableTVMask & reliableTVMask(:,[2:end,end]);
@@ -544,7 +544,7 @@ for iIte = 1 : nIterative
         %     lambdaHorizontal = directionWeightX .* max(LambdaMap, LambdaMap(:,[2:end,end]));
         %     LambdaGradient = cat(3, lambdaVertical, lambdaHorizontal);
         %     LambdaGradient(~validGradientMask) = 0;
-% 
+        %
         %     v_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
         %     w_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
         %     LambdaGradientLike = cast(LambdaGradient, 'like', Object);
@@ -561,7 +561,7 @@ for iIte = 1 : nIterative
         %     Object(reliableTVMask) = Object_tv_candidate(reliableTVMask);
         %     Object(reliableTVMask) = min(abs(Object(reliableTVMask)), 1.05) .* ...
         %         exp(1j .* angle(Object(reliableTVMask)));
-% 
+        %
         %     save(fullfile(foldername, sprintf('AdaptiveTV_iter%04d.mat', iIte)), ...
         %         'coverageCount', 'confidenceMap', 'uncertaintyRawCPU', ...
         %         'uncertaintyBaseline', 'uncertaintyMap', 'riskMap', ...
@@ -616,7 +616,7 @@ for iIte = 1 : nIterative
 
             % User-adjustable TV parameters.
             lam_tv_center = lam_tv;
-            lam_tv_edge = 1 * lam_tv;
+            lam_tv_edge = 100* lam_tv;
             lam_tv_power = 3;
             coverageRiskWeight = 0.8;
             uncertaintyRiskWeight = 0.2;
@@ -635,10 +635,19 @@ for iIte = 1 : nIterative
             validRight = validCols(end);
             validHeight = validBottom - validTop + 1;
             validWidth = validRight - validLeft + 1;
-            validCenterRow = (validTop + validBottom) / 2;
-            validCenterCol = (validLeft + validRight) / 2;
-            halfCenterHeight = tvCenterHeightRatio * validHeight / 2;
-            halfCenterWidth = tvCenterWidthRatio * validWidth / 2;
+
+            if isfield(MainPara, 'TV_ROI') && ~isempty(MainPara.TV_ROI)
+                validCenterCol = MainPara.TV_ROI(1) + MainPara.TV_ROI(3)/2;
+                validCenterRow = MainPara.TV_ROI(2) + MainPara.TV_ROI(4)/2;
+                halfCenterWidth = MainPara.TV_ROI(3)/2;
+                halfCenterHeight = MainPara.TV_ROI(4)/2;
+            else
+                validCenterRow = (validTop + validBottom) / 2;
+                validCenterCol = (validLeft + validRight) / 2;
+                halfCenterHeight = tvCenterHeightRatio * validHeight / 2;
+                halfCenterWidth = tvCenterWidthRatio * validWidth / 2;
+            end
+
             [mapColsGrid, mapRowsGrid] = meshgrid(1:size(confidenceMap,2), ...
                 1:size(confidenceMap,1));
             distanceOutsideY = max(abs(mapRowsGrid - validCenterRow) - halfCenterHeight, 0);
@@ -747,7 +756,7 @@ for iIte = 1 : nIterative
         %     Object, outputValidMask, outputOptions);
         % save(fullfile(foldername, 'OutputFOV.mat'), ...
         %     'outputValidMask', 'outputBounds');
-% 
+        %
         % save(fullfile(foldername, sprintf("Object_iter%04d.mat", iIte)), 'Object');
         % <<< OUTPUT-FOV-OLD-END
 
