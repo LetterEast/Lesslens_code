@@ -219,6 +219,13 @@ for iIte = 1 : nIterative
         % Back to object plane and save Object
         save('.\ImgRec.mat','ImgRec')
         Object = back2Object(ImgRec, D_Sample2CCD, MainPara);
+        
+        % 裁剪回归原始视场大小
+        if isfield(MNZ_result, 'pad') && MNZ_result.pad > 0
+            pad = MNZ_result.pad;
+            Object = Object(pad+1 : end-pad, pad+1 : end-pad);
+        end
+        
         save(fullfile(foldername, sprintf("Object_iter%04d.mat", iIte)), 'Object');
 
         % Save amplitude / phase images

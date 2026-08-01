@@ -30,6 +30,11 @@ for i = 2:num_img
     out_img_set{i} = ifft2(ifftshift(InputImg_fft .* Phase));
     imwrite(mat2gray(abs(out_img_set{i})),fullfile(title_folder,sprintf("%0.3d.png",i)))
 end
+for i = 1:num_img
+    pad = 500;
+    out_img_set{i} = padarray(out_img_set{i}, [pad, pad], "replicate", 'both');
+end
 
+MNZ_result.pad = 500; % 保存 pad 大小供后续裁剪使用
 MNZ_result.M = 0;
 MNZ_result.N = 0;

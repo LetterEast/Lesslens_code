@@ -23,18 +23,18 @@ addpath(genpath(pwd));
 %==========================================================================
 
 %% Parameters setting (physical + acquisition)
-RawImgFolder = "D:\Desktop\无透镜成像原始数据\超像素分辨\2026.4.14.2生物样品\one-bg_fish0.5mm\1";\
-load("D:\Desktop\extracted_circle_images\1\MNZ_result.mat")
+RawImgFolder = "D:\Desktop\data\2026\USAF_1951\1";
+load("D:\Desktop\data\2026\USAF_1951\2026-06-16_15-58-49\MNZ_result.mat")
 
 WaveLength          = 514e-9;                          % [m] wavelength
 PixelSize           = 3e-6;                            % [m/pixel] sensor effective pixel size
-nIterative          = 1000;                            % iteration count
+nIterative          = 10;                            % iteration count
 numImages           = 5;                               % number of captured positions/images
-DistanceIntervalSet = [0,ones(1,numImages-1)]*0.5e-3;  % [m] distance interval between adjacent captures
-
+DistanceIntervalSet = [0,ones(1,numImages-1)]*1e-3;  % [m] distance interval between adjacent captures
+% DistanceIntervalSet = [0:0.1e-3:1e-3];
 %% Distance interval configuration (calibration search ranges)
 % Options
-iIte_record = 10;                             % record every iIte_record iterations
+iIte_record = 1;                             % record every iIte_record iterations
 
 % CCD axial translation per capture
 ParaDisInterval.DisIntervalPre =  0.5e-3;      % [m] prior interval
@@ -42,7 +42,7 @@ ParaDisInterval.DisIntervalHalfRange = 0e-3;% [m] search half range
 ParaDisInterval.rough = 0.01e-3;            % [m] coarse step
 
 %  Sample-to-CCD distance
-ParaD_Sample2CCD.D_Sample2CCDPre = 2e-3;        % [m]
+ParaD_Sample2CCD.D_Sample2CCDPre = 1e-3;        % [m]
 ParaD_Sample2CCD.D_Sample2CCDHalfRange = 1e-3;  % [m]
 ParaD_Sample2CCD.rough = 0.01e-3;               % [m] 粗测步长
 

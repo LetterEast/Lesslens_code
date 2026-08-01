@@ -44,7 +44,7 @@ fy = (y0 / L) / lambda * sign(z);
 U_base = U .* exp(-1i * 2 * pi * (fx * X + fy * Y));
 
 % --- 4. 空间域边缘平滑 ---
-win_width = 0.15;
+win_width = 0;
 W_spatial = tukeywin(M, win_width) * tukeywin(N, win_width)';
 if useGPU, W_spatial = gpuArray(W_spatial); end
 U_base = U_base .* W_spatial;
@@ -90,7 +90,7 @@ mask = ones(size(rho), 'like', rho);
 idx = rho > 0.8 & rho <= 1.0;
 mask(idx) = 0.5 * (1 + cos(pi * (rho(idx) - 0.8) / 0.2));
 mask(rho > 1.0) = 0;
-
+mask = ones(size(rho), 'like', rho);
 % --- 9. 傅里叶平移定理 (核心物理转移) ---
 H_shift = exp(-1i * 2 * pi * (U_freq * x0 + V_freq * y0));
 
