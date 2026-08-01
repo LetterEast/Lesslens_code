@@ -6,7 +6,7 @@ projectRoot = fileparts(mfilename('fullpath'));
 addpath(genpath(projectRoot));
 
 %% User parameters
-cfg.data.rawFolder = 'D:\Desktop\data\2026\6.17\Fish_gill_UD\UD';
+cfg.data.rawFolder = 'D:\Desktop\data\2026\6.17\Pumpkin_UD\UD';
 cfg.data.calibrationFile = 'D:\Desktop\data\2026\6.17\MNZ_result.mat';
 cfg.data.numImages = 11;
 
@@ -54,15 +54,13 @@ mainPara.MNZ_result       = MNZ_result;
 mainPara.Output           = cfg.output;
 mainPara.IllumSet = getMultiAngleIllum( ...
     imgSet{1}, MNZ_result, cfg.optics.pixelSize, cfg.optics.wavelength);
-% --- 在 main.m 调用 getRec_APRW 前面加上这段 ---
-figure('Name', '请用鼠标框选 TV 保护区 (选完双击框内部确认)');
-imshow(imgSet{1}, []);
-title('请框选鱼鳃区域（此区域TV弱以保留细节，区域外TV强以去噪）');
-rect = getrect; % 让用户用鼠标画框，返回 [x, y, 宽度, 高度]
-close;
-
-mainPara.TV_ROI = rect; % 传给算法
-% ----------------------------------------------
+% --- 可选：手动框选 TV 保护区 (留空则自动根据数据重叠覆盖度自适应分配) ---
+% figure('Name', '请用鼠标框选 TV 保护区');
+% imshow(imgSet{1}, []);
+% rect = getrect; close;
+% mainPara.TV_ROI = rect;
+mainPara.TV_ROI = []; % 默认留空，开启全自动数据驱动自适应 TV 模式
+% -----------------------------------------------------------------
 Rec_nInterative = getRec_APRW( ...
     imgSet, mainPara, cfg.distance.steps, cfg.reconstruction.recordEvery);
 

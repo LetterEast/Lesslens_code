@@ -71,10 +71,10 @@ a = 0.7;
 b = -0.13*a + 0.6;   %
 % a = 0;b=0;  % Disable weighted feedback for testing
 %% ---------- CCTV (Complex Total Variation) parameters ----------
-use_tv        = true;   % Toggle TV denoising
+use_tv        = false;   % Toggle TV denoising
 lam_tv        = 1e-3;   % Regularization parameter (tune this, e.g., 1e-3 to 5e-2)
 gam_tv        = 2;      % Gradient step size
-n_subiters_tv = 50;     % TV inner loops
+n_subiters_tv = 20;     % TV inner loops
 
 %% ---------- Support Constraint Parameters ----------
 use_support = false;
@@ -180,7 +180,6 @@ for iIte = 1 : nIterative
 
         end
 
-
         % Current propagation distance from plane#1 to plane#iImg
         z    = zSet(iImg);  % [m]
         z_mm = z * 1e3;     % [mm] for display
@@ -283,14 +282,15 @@ for iIte = 1 : nIterative
         ImgRec_record1 = ImgRec_record;
     end
     Stack  = cat(3, ImgRec_record1{:});
-    % ImgRec = mean(Stack, 3);
-    bg_val = mean(img_set{1}(:).^0.5);
+    ImgRec = mean(Stack, 3);
+    % bg_val = mean(img_set{1}(:).^0.5);
 
     % (Mask-weighted Feedback)
     MaskStack                = cat(3, MNZ_result.ValidMask{:});
     TotalWeight              = sum(MaskStack, 3);
-    ImgRec                   = (sum(Stack .* MaskStack, 3) + 1e-2 * Illum_CCD) ./ (TotalWeight + 1e-2);
-    ImgRec(TotalWeight == 0) = bg_val;
+    % ImgRec                   = (sum(Stack .* MaskStack, 3) + 1e-2 * Illum_CCD) ./ (TotalWeight + 1e-2);
+    % ImgRec = sum(Stack .* MaskStack, 3) ./ max(TotalWeight, eps);
+    % ImgRec(TotalWeight == 0) = bg_val;
 
     % ================== 物理约束 (Physical Constraints) ==================
     % Absorption Constraint (吸收约束):
@@ -616,8 +616,8 @@ for iIte = 1 : nIterative
 
             % User-adjustable TV parameters.
             lam_tv_center = lam_tv;
-            lam_tv_edge = 100* lam_tv;
-            lam_tv_power = 3;
+            lam_tv_edge = 50* lam_tv;
+            lam_tv_power = 5;
             coverageRiskWeight = 0.8;
             uncertaintyRiskWeight = 0.2;
             tvCenterHeightRatio = 0.65;
@@ -641,31 +641,31 @@ for iIte = 1 : nIterative
                 validCenterRow = MainPara.TV_ROI(2) + MainPara.TV_ROI(4)/2;
                 halfCenterWidth = MainPara.TV_ROI(3)/2;
                 halfCenterHeight = MainPara.TV_ROI(4)/2;
-            else
-                validCenterRow = (validTop + validBottom) / 2;
-                validCenterCol = (validLeft + validRight) / 2;
-                halfCenterHeight = tvCenterHeightRatio * validHeight / 2;
-                halfCenterWidth = tvCenterWidthRatio * validWidth / 2;
-            end
 
-            [mapColsGrid, mapRowsGrid] = meshgrid(1:size(confidenceMap,2), ...
-                1:size(confidenceMap,1));
-            distanceOutsideY = max(abs(mapRowsGrid - validCenterRow) - halfCenterHeight, 0);
-            distanceOutsideX = max(abs(mapColsGrid - validCenterCol) - halfCenterWidth, 0);
-            availableEdgeY = max(validHeight / 2 - halfCenterHeight, 1);
-            availableEdgeX = max(validWidth / 2 - halfCenterWidth, 1);
-            normalizedDistanceY = distanceOutsideY ./ availableEdgeY;
-            normalizedDistanceX = distanceOutsideX ./ availableEdgeX;
-            cropBoundaryRisk = min(max(normalizedDistanceX, normalizedDistanceY), 1) .^ ...
-                cropBoundaryRiskPower;
-            centerProtectMask = (distanceOutsideX == 0) & (distanceOutsideY == 0) & ...
-                reliableTVMask;
+                [mapColsGrid, mapRowsGrid] = meshgrid(1:size(confidenceMap,2), ...
+                    1:size(confidenceMap,1));
+                distanceOutsideY = max(abs(mapRowsGrid - validCenterRow) - halfCenterHeight, 0);
+                distanceOutsideX = max(abs(mapColsGrid - validCenterCol) - halfCenterWidth, 0);
+                availableEdgeY = max(validHeight / 2 - halfCenterHeight, 1);
+                availableEdgeX = max(validWidth / 2 - halfCenterWidth, 1);
+                normalizedDistanceY = distanceOutsideY ./ availableEdgeY;
+                normalizedDistanceX = distanceOutsideX ./ availableEdgeX;
+                cropBoundaryRisk = min(max(normalizedDistanceX, normalizedDistanceY), 1) .^ ...
+                    cropBoundaryRiskPower;
+                centerProtectMask = (distanceOutsideX == 0) & (distanceOutsideY == 0) & ...
+                    reliableTVMask;
+            else
+                cropBoundaryRisk = zeros(size(confidenceMap), 'like', confidenceMap);
+                centerProtectMask = false(size(confidenceMap));
+            end
 
             coverageRisk = (1 - confidenceMap).^lam_tv_power;
             uncertaintyRisk = uncertaintyMap .* cropBoundaryRisk;
             riskMap = max(cropBoundaryRisk, coverageRiskWeight .* coverageRisk);
             riskMap = max(riskMap, uncertaintyRiskWeight .* uncertaintyRisk);
-            riskMap(centerProtectMask) = 0;
+            if any(centerProtectMask(:))
+                riskMap(centerProtectMask) = 0;
+            end
             riskMap(~reliableTVMask) = 0;
             riskMap = min(max(riskMap, 0), 1);
             LambdaMap = lam_tv_center + (lam_tv_edge - lam_tv_center) .* riskMap;

@@ -60,7 +60,7 @@ U_base = U_base .* W_spatial;
 % --- 5. 边缘复制扩充 (替代原本的补零) ---
 % 纯补零会在边缘产生巨大的阶跃（从背景亮度突然掉到 0），传播时会产生强烈的菲涅尔衍射波纹（吉布斯振铃）侵入原图边缘
 % 边缘复制扩充（Replicate Padding）可以完美避免这种阶跃
-pad_factor = 2; % 增加补零系数，防止大衍射角下的卷边问题
+pad_factor = 1; % 增加补零系数，防止大衍射角下的卷边问题
 pad_M = M * pad_factor;
 pad_N = N * pad_factor;
 
@@ -123,7 +123,7 @@ else
     mask = softRectBandlimit( ...
         U_true, V_true, u_min, u_max, v_min, v_max, 0.1);
 end
-
+mask = ones(size(U_true), 'like', U_true);
 % --- 9. 傅里叶平移定理 (核心物理转移) ---
 H_shift = exp(-1i * 2 * pi * (U_true * x0 + V_true * y0));
 
