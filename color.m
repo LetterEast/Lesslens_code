@@ -18,8 +18,8 @@ MainPara.nIterative          = 10;                              % iteration coun
 MainPara.numImages           = 5;                               % number of captured positions/images
 MainPara.DistanceIntervalSet = [0, ones(1, MainPara.numImages-1)] * 1e-3; % [m] distance interval between adjacent captures
 
-MainPara.ParaD_Sample2CCD.D_Sample2CCDPre = 2e-3;        % [m]
-MainPara.ParaD_Sample2CCD.D_Sample2CCDHalfRange = 1e-3;  % [m]
+MainPara.ParaD_Sample2CCD.D_Sample2CCDPre = 1.69e-3;        % [m]
+MainPara.ParaD_Sample2CCD.D_Sample2CCDHalfRange = 0e-3;  % [m]
 MainPara.ParaD_Sample2CCD.rough = 0.01e-3;               % [m] 粗测步长
 
 iIte_record = MainPara.nIterative;
@@ -28,6 +28,7 @@ batch_predefined_rect = [];
 
 % 用来暂存RGB三个通道的振幅/强度重建结果
 color_channels = cell(1, 3);
+all_MNZ_results = cell(1, 3);
 
 fprintf('\n==============================================\n');
 fprintf('正在启动彩色融合重建流程...\n');
@@ -68,6 +69,7 @@ for i_folder = 1:num_folder
     fprintf('     - 正在应用倾斜照明校正...\n');
     [img_set, MNZ_result] = TiltIllumination(img_set, MNZ_result, MainPara.PixelSize, MainPara.DistanceIntervalSet);
     MainPara.MNZ_result = MNZ_result;
+    all_MNZ_results{i_folder} = MNZ_result;
     fprintf('     - 正在计算多角度照明参数...\n');
     IllumPaSet = getMultiAngleIllum(img_set{1}, MNZ_result, MainPara.PixelSize, current_wavelength);
     MainPara.IllumSet = IllumPaSet;
@@ -78,7 +80,7 @@ for i_folder = 1:num_folder
     fprintf('     - 通道 %d 重建完成。\n\n', i_folder);
 
     % 获取最终迭代出来的物体并转化为强度图 [0,1]
-    FinalObj = Rec_nInterative;
+    FinalObj = Rec_nInterative{end};
     IntensityImg = mat2gray(abs(FinalObj));
 
     color_channels{i_folder} = IntensityImg;
@@ -93,14 +95,41 @@ end
 %     end
 % end
 
-% 对齐三个通道
-usfac = 20;
-buf1ft = fft2(color_channels{1});
+% 对齐三个通道：根据 MNZ_result 的物理标定参数进行平移
+
+% 1. 首先去除 padding，恢复到原始相机传感器尺寸
+for i_img = 1:numel(color_channels)
+    padY = all_MNZ_results{i_img}.padSize(1);
+    padX = all_MNZ_results{i_img}.padSize(2);
+    orig_m = all_MNZ_results{i_img}.orig_size(1);
+    orig_n = all_MNZ_results{i_img}.orig_size(2);
+
+    color_channels{i_img} = color_channels{i_img}(padY+1 : padY+orig_m, padX+1 : padX+orig_n);
+end
+
+% 2. 根据 MNZ_result 计算物理偏差并进行亚像素平移
+D_Sample2CCD = MainPara.ParaD_Sample2CCD.D_Sample2CCDPre;
+PixelSize = MainPara.PixelSize;
+
+M1 = all_MNZ_results{1}.M;
+N1 = all_MNZ_results{1}.N;
+Z1 = all_MNZ_results{1}.Z;
+kx1 = M1 / Z1;
+ky1 = N1 / Z1;
+
 for i_img = 2:numel(color_channels)
-    buf2ft = fft2(color_channels{i_img});
-    [output, ~] = dftregistration(buf1ft,buf2ft,usfac);
-    Shift_X = output(4);
-    Shift_Y = output(3);
+    Mi = all_MNZ_results{i_img}.M;
+    Ni = all_MNZ_results{i_img}.N;
+    Zi = all_MNZ_results{i_img}.Z;
+    kxi = Mi / Zi;
+    kyi = Ni / Zi;
+
+    % 计算物理平移量 (像素)
+    % 阴影偏移：shift = D_Sample2CCD * kx / PixelSize
+    % 目标是将 i 图像对齐到通道 1 图像，所以平移量为 1 的偏移减去 i 的偏移
+    Shift_X = (D_Sample2CCD / PixelSize) * (kx1 - kxi);
+    Shift_Y = (D_Sample2CCD / PixelSize) * (ky1 - kyi);
+
     color_channels{i_img} = subpixelshift(color_channels{i_img}, Shift_X, Shift_Y);
 end
 

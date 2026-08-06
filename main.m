@@ -6,14 +6,14 @@ projectRoot = fileparts(mfilename('fullpath'));
 addpath(genpath(projectRoot));
 
 %% User parameters
-cfg.data.rawFolder = 'D:\Desktop\data\2026\6.17\Pumpkin_UD\UD';
-cfg.data.calibrationFile = 'D:\Desktop\data\2026\6.17\MNZ_result.mat';
-cfg.data.numImages = 11;
+cfg.data.rawFolder = 'D:\Desktop\data\2026\rgb\img\02_green_sample';
+cfg.data.calibrationFile = 'D:\Desktop\data\2026\rgb\MNZ\02\MNZ_result.mat';
+cfg.data.numImages = 5;
 
 cfg.optics.wavelength = 514e-9;       % [m]
 cfg.optics.pixelSize  = 3e-6;         % [m/pixel]
-% cfg.distance.steps = [0, ones(1, cfg.data.numImages - 1)] * 1e-3;
-cfg.distance.steps = [0:0.1e-3:1e-3]; % [m]
+cfg.distance.steps = [0, ones(1, cfg.data.numImages - 1)] * 1e-3;
+% cfg.distance.steps = [0:0.1e-3:1e-3]; % [m]
 
 cfg.reconstruction.iterations  = 18;
 cfg.reconstruction.recordEvery = 3;
@@ -21,8 +21,8 @@ cfg.output.cropToValidFOV     = true;
 cfg.output.validMaskThreshold = 0.01;
 cfg.output.zeroFillInvalid    = true;
 
-cfg.calibration.sampleToCCD.prior     = 2e-3;    % [m]
-cfg.calibration.sampleToCCD.halfRange = 1.5e-3;  % [m]
+cfg.calibration.sampleToCCD.prior     = 1.69e-3;    % [m]
+cfg.calibration.sampleToCCD.halfRange = 0e-3;  % [m]
 cfg.calibration.sampleToCCD.step      = 0.01e-3; % [m]
 cfg.calibration.sampleToCCD.interval  = 0.1e-3;  % [m]
 

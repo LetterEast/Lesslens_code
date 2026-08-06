@@ -1,8 +1,8 @@
 clear; clc; close all;
 addpath(genpath(pwd));
 % Define base paths
-image_dir    = 'D:\Desktop\data\2026\4.17data\green_usa_0.5mm\one-bg_20260417_161556';
-circle_dir = 'D:\Desktop\data\2026\4.17data\green_circle_1mm\one-bg_20260417_153339';
+image_dir    = 'D:\Desktop\data\2026\8.5_result\image';
+circle_dir = 'D:\Desktop\data\2026\8.5_result\circle';
 result_base = fullfile(pwd, 'result');
 
 if ~exist(result_base, 'dir')
@@ -48,7 +48,7 @@ for k = 1:length(valid_dirs)
     ParaDisInterval.rough = 0.01e-3;
 
     ParaD_Sample2CCD.D_Sample2CCDPre = 2e-3;
-    ParaD_Sample2CCD.D_Sample2CCDHalfRange = 1e-3;
+    ParaD_Sample2CCD.D_Sample2CCDHalfRange = 0e-3;
     ParaD_Sample2CCD.rough = 0.01e-3;
 
     % 1) Raw image average function output is in OutputPath
@@ -62,7 +62,7 @@ for k = 1:length(valid_dirs)
     a = load(mnz_mat_path);
     MNZ_result = a.MNZ_result; % load from structure
 
-    DistanceIntervalSet = [0, ones(1,numImages-1)] * 0.5e-3;
+    DistanceIntervalSet = [0, ones(1,numImages-1)] * 1e-3;
 
     % 4) Calibrate Illumination
     [img_set, MNZ_result] = TiltIllumination(img_set, MNZ_result, PixelSize, DistanceIntervalSet);
