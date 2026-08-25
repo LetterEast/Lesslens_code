@@ -72,17 +72,14 @@ b = -0.13*a + 0.6;   %
 % a = 0;b=0;  % Disable weighted feedback for testing
 %% ---------- CCTV (Complex Total Variation) parameters ----------
 use_tv        = false;   % Toggle TV denoising
-lam_tv        = 1e-3;   % Regularization parameter (tune this, e.g., 1e-3 to 5e-2)
+lam_tv        = 0.5e-2;   % Regularization parameter (tune this, e.g., 1e-3 to 5e-2)
 gam_tv        = 2;      % Gradient step size
 n_subiters_tv = 20;     % TV inner loops
 
 %% ---------- Support Constraint Parameters ----------
 use_support = false;
-% SUPPORT-WINDOW-FIX-OLD: support_pad = 30; % Original line had win_r appended after the comment.
-% >>> SUPPORT-WINDOW-FIX-BEGIN (Codex)
 support_pad = 30;
 win_r       = tukeywin(mRow, 2*support_pad/mRow);
-% <<< SUPPORT-WINDOW-FIX-END (Codex)
 win_c       = tukeywin(nCol, 2*support_pad/nCol);
 SupportMask = win_r * win_c';
 %% ---------- Precompute propagation distances to each plane ----------
@@ -104,23 +101,9 @@ runStamp = datestr(now, 'yyyymmdd_HHMMSS');
 Parent_foldername = fullfile(".\ResultFolder", sprintf("APRW_%s_N%d_I%d_rec%d", runStamp, n_img, nIterative, iIte_record));
 if ~exist(Parent_foldername, 'dir'); mkdir(Parent_foldername); end
 
-% >>> FULL-CANVAS-INITIALIZATION-OLD-BEGIN
-% % ---------- Initialization ----------
-% % Initialize complex field estimate at plane 1 using sqrt of first intensity
-% ImgRec = sqrt(img_set{1});
-% ImgRec = ImgRec .* IllumPattern;  % apply illumination modulation if needed
-% <<< FULL-CANVAS-INITIALIZATION-OLD-END
 
-% >>> MASKED-INITIALIZATION-TEST-BEGIN (Codex)
 initialAmp = sqrt(img_set{1});
-% >>> SOFT-INITIALIZATION-MASK-OLD-BEGIN
-% if isfield(MNZ_result, 'ValidMask') && ~isempty(MNZ_result.ValidMask)
-%     initialMask = cast(MNZ_result.ValidMask{1}, 'like', initialAmp);
-% else
-%     initialMask = ones(size(initialAmp), 'like', initialAmp);
-% end
-% <<< SOFT-INITIALIZATION-MASK-OLD-END
-% >>> HARD-INITIALIZATION-MASK-TEST-BEGIN (Codex)
+
 if isfield(MNZ_result, 'ValidMaskHard') && ~isempty(MNZ_result.ValidMaskHard)
     initialMask = cast(MNZ_result.ValidMaskHard{1}, 'like', initialAmp);
 else
@@ -133,12 +116,10 @@ initialBackgroundAmp = sum(initialMask(:) .* initialAmp(:)) ./ ...
 initialAmp = initialMask .* initialAmp + ...
     (1 - initialMask) .* initialBackgroundAmp;
 ImgRec = initialAmp .* IllumPattern;
-% <<< MASKED-INITIALIZATION-TEST-END (Codex)
 
 % Store modulated guesses from previous iterations for weighted feedback
 ImgRec_record1 = cell(1, n_img);  % g~_{k-1}(n)
 ImgRec_record2 = cell(1, n_img);  % g~_{k-2}(n)
-
 
 %% ---------- Visualization ----------
 hFig = figure('Name', 'APRW / Weighted Feedback Monitor');
@@ -196,30 +177,9 @@ for iIte = 1 : nIterative
         % (2) Amplitude replacement
         thisAmpImg      = img_set{iImg}.^0.5;
 
-        % >>> FULL-CANVAS-AMPLITUDE-REPLACEMENT-OLD-BEGIN
-        % % --- 计算 R-factor 累加值 (使用 || A_hat - A ||_F^2 / || A ||_F^2) ---
-        % predictedAmp = abs(lightOnDetector);
-        % thisAmpImg_gpu = cast(thisAmpImg, 'like', predictedAmp);
-        % diffAmp = predictedAmp - thisAmpImg_gpu;
-        % err_num = err_num + gather(sum(diffAmp(:).^2));
-        % err_den = err_den + gather(sum(thisAmpImg_gpu(:).^2));
-        %
-        % lightOnDetector = thisAmpImg_gpu .* exp(1j .* angle(lightOnDetector));
-        % <<< FULL-CANVAS-AMPLITUDE-REPLACEMENT-OLD-END
-
-        % >>> MASKED-AMPLITUDE-REPLACEMENT-TEST-BEGIN (Codex)
         predictedAmp = abs(lightOnDetector);
         thisAmpImg_gpu = cast(thisAmpImg, 'like', predictedAmp);
-        % >>> SOFT-AMPLITUDE-MASK-OLD-BEGIN
-        % if isfield(MNZ_result, 'ValidMask') && ...
-        %         numel(MNZ_result.ValidMask) >= iImg
-        %     measurementMask = cast(MNZ_result.ValidMask{iImg}, ...
-        %         'like', predictedAmp);
-        % else
-        %     measurementMask = ones(size(predictedAmp), 'like', predictedAmp);
-        % end
-        % <<< SOFT-AMPLITUDE-MASK-OLD-END
-        % >>> HARD-AMPLITUDE-MASK-TEST-BEGIN (Codex)
+
         if isfield(MNZ_result, 'ValidMaskHard') && ...
                 numel(MNZ_result.ValidMaskHard) >= iImg
             measurementMask = cast(MNZ_result.ValidMaskHard{iImg}, ...
@@ -227,7 +187,6 @@ for iIte = 1 : nIterative
         else
             measurementMask = ones(size(predictedAmp), 'like', predictedAmp);
         end
-        % <<< HARD-AMPLITUDE-MASK-TEST-END (Codex)
         measurementMask = min(max(measurementMask, 0), 1);
 
         % Evaluate R-factor only where measured information is valid.
@@ -242,7 +201,6 @@ for iIte = 1 : nIterative
         updatedAmp = measurementMask .* thisAmpImg_gpu + ...
             (1 - measurementMask) .* predictedAmp;
         lightOnDetector = updatedAmp .* exp(1j .* angle(lightOnDetector));
-        % <<< MASKED-AMPLITUDE-REPLACEMENT-TEST-END (Codex)
 
         % (3) Back propagate to object plane => g_k(n)
         ImgRec_record{iImg} = propGPU( ...
@@ -288,9 +246,6 @@ for iIte = 1 : nIterative
     % (Mask-weighted Feedback)
     MaskStack                = cat(3, MNZ_result.ValidMask{:});
     TotalWeight              = sum(MaskStack, 3);
-    % ImgRec                   = (sum(Stack .* MaskStack, 3) + 1e-2 * Illum_CCD) ./ (TotalWeight + 1e-2);
-    % ImgRec = sum(Stack .* MaskStack, 3) ./ max(TotalWeight, eps);
-    % ImgRec(TotalWeight == 0) = bg_val;
 
     % ================== 物理约束 (Physical Constraints) ==================
     % Absorption Constraint (吸收约束):
@@ -380,9 +335,9 @@ for iIte = 1 : nIterative
         Illum_Sample = exp(1j * k0_wave .* r_sample);
 
         % 3. 在样品面上，去除球面波的相位，得到真实的纯物体透射率
-        % >>> OBJECT-INIT-FIX-BEGIN (Codex)
+
         Object = Object_full .* exp(-1j * angle(Illum_Sample));
-        % <<< OBJECT-INIT-FIX-END (Codex)
+
 
         % Save phase at three stages with one fixed [-pi, pi] display scale.
         % This distinguishes iterative-boundary artifacts from back-propagation
@@ -405,182 +360,6 @@ for iIte = 1 : nIterative
         end
 
 
-        % ADAPTIVE-TV-OLD: if use_tv
-        % ADAPTIVE-TV-OLD:     v_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
-        % ADAPTIVE-TV-OLD:     w_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
-        % ADAPTIVE-TV-OLD:
-        % ADAPTIVE-TV-OLD:     for subiter = 1:n_subiters_tv
-        % ADAPTIVE-TV-OLD:         w_next = v_est + (1 / (8 * gam_tv)) * Df(Object - gam_tv * DTf(v_est));
-        % ADAPTIVE-TV-OLD:         w_next = min(abs(w_next), lam_tv) .* exp(1j * angle(w_next));
-        % ADAPTIVE-TV-OLD:         v_est = w_next + (subiter / (subiter + 3)) * (w_next - w_est);
-        % ADAPTIVE-TV-OLD:         w_est = w_next;
-        % ADAPTIVE-TV-OLD:     end
-        % ADAPTIVE-TV-OLD:     Object = Object - gam_tv * DTf(w_est);
-        % ADAPTIVE-TV-OLD:     Object = min(abs(Object), 1.05) .* exp(1j * angle(Object));
-        % ADAPTIVE-TV-OLD: end
-
-        % ADAPTIVE-TV-COVERAGE-OLD: % >>> ADAPTIVE-TV-TEST-BEGIN (Codex)
-        % ADAPTIVE-TV-COVERAGE-OLD: if use_tv
-        % ADAPTIVE-TV-COVERAGE-OLD: if isfield(MNZ_result, 'ValidMaskHard')
-        % ADAPTIVE-TV-COVERAGE-OLD: coverageCount = sum(cat(3, MNZ_result.ValidMaskHard{:}), 3);
-        % ADAPTIVE-TV-COVERAGE-OLD: else
-        % ADAPTIVE-TV-COVERAGE-OLD: coverageCount = double(TotalWeight > outputOptions.validMaskThreshold);
-        % ADAPTIVE-TV-COVERAGE-OLD: end
-        % ADAPTIVE-TV-COVERAGE-OLD: maxCoverage = max(coverageCount(:));
-        % ADAPTIVE-TV-COVERAGE-OLD: confidenceMap = coverageCount ./ max(maxCoverage, 1);
-        % ADAPTIVE-TV-COVERAGE-OLD: reliableTVMask = coverageCount > 0;
-        % ADAPTIVE-TV-COVERAGE-OLD: lam_tv_center = lam_tv;
-        % ADAPTIVE-TV-COVERAGE-OLD: lam_tv_edge = 7 * lam_tv;
-        % ADAPTIVE-TV-COVERAGE-OLD: lam_tv_power = 0.2;
-        % ADAPTIVE-TV-COVERAGE-OLD: LambdaMap = lam_tv_center + (lam_tv_edge - lam_tv_center) .* ...
-        % ADAPTIVE-TV-COVERAGE-OLD: (1 - confidenceMap).^lam_tv_power;
-        % ADAPTIVE-TV-COVERAGE-OLD: LambdaMap(~reliableTVMask) = 0;
-        % ADAPTIVE-TV-COVERAGE-OLD:
-        % ADAPTIVE-TV-COVERAGE-OLD: validGradVertical = reliableTVMask & reliableTVMask([2:end,end],:);
-        % ADAPTIVE-TV-COVERAGE-OLD: validGradVertical(end,:) = false;
-        % ADAPTIVE-TV-COVERAGE-OLD: validGradHorizontal = reliableTVMask & reliableTVMask(:,[2:end,end]);
-        % ADAPTIVE-TV-COVERAGE-OLD: validGradHorizontal(:,end) = false;
-        % ADAPTIVE-TV-COVERAGE-OLD: validGradientMask = cat(3, validGradVertical, validGradHorizontal);
-        % ADAPTIVE-TV-COVERAGE-OLD: lambdaVertical = max(LambdaMap, LambdaMap([2:end,end],:));
-        % ADAPTIVE-TV-COVERAGE-OLD: lambdaHorizontal = max(LambdaMap, LambdaMap(:,[2:end,end]));
-        % ADAPTIVE-TV-COVERAGE-OLD: LambdaGradient = cat(3, lambdaVertical, lambdaHorizontal);
-        % ADAPTIVE-TV-COVERAGE-OLD: LambdaGradient(~validGradientMask) = 0;
-        % ADAPTIVE-TV-COVERAGE-OLD:
-        % ADAPTIVE-TV-COVERAGE-OLD: v_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
-        % ADAPTIVE-TV-COVERAGE-OLD: w_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
-        % ADAPTIVE-TV-COVERAGE-OLD: LambdaGradientLike = cast(LambdaGradient, 'like', Object);
-        % ADAPTIVE-TV-COVERAGE-OLD: validGradientMaskLike = cast(validGradientMask, 'like', Object);
-        % ADAPTIVE-TV-COVERAGE-OLD: for subiter = 1:n_subiters_tv
-        % ADAPTIVE-TV-COVERAGE-OLD: w_next = v_est + (1 / (8 * gam_tv)) * ...
-        % ADAPTIVE-TV-COVERAGE-OLD: Df(Object - gam_tv * DTf(v_est));
-        % ADAPTIVE-TV-COVERAGE-OLD: w_next = min(abs(w_next), LambdaGradientLike) .* ...
-        % ADAPTIVE-TV-COVERAGE-OLD: exp(1j .* angle(w_next));
-        % ADAPTIVE-TV-COVERAGE-OLD: w_next = w_next .* validGradientMaskLike;
-        % ADAPTIVE-TV-COVERAGE-OLD: v_est = w_next + (subiter / (subiter + 3)) * (w_next - w_est);
-        % ADAPTIVE-TV-COVERAGE-OLD: w_est = w_next;
-        % ADAPTIVE-TV-COVERAGE-OLD: end
-        % ADAPTIVE-TV-COVERAGE-OLD: Object_tv_candidate = Object - gam_tv * DTf(w_est);
-        % ADAPTIVE-TV-COVERAGE-OLD: Object(reliableTVMask) = Object_tv_candidate(reliableTVMask);
-        % ADAPTIVE-TV-COVERAGE-OLD: Object(reliableTVMask) = min(abs(Object(reliableTVMask)), 1.05) .* ...
-        % ADAPTIVE-TV-COVERAGE-OLD: exp(1j .* angle(Object(reliableTVMask)));
-        % ADAPTIVE-TV-COVERAGE-OLD:
-        % ADAPTIVE-TV-COVERAGE-OLD: save(fullfile(foldername, sprintf('AdaptiveTV_iter%04d.mat', iIte)), ...
-        % ADAPTIVE-TV-COVERAGE-OLD: 'coverageCount', 'confidenceMap', 'reliableTVMask', ...
-        % ADAPTIVE-TV-COVERAGE-OLD: 'LambdaMap', 'LambdaGradient', 'lam_tv_center', ...
-        % ADAPTIVE-TV-COVERAGE-OLD: 'lam_tv_edge', 'lam_tv_power');
-        % ADAPTIVE-TV-COVERAGE-OLD: imwrite(uint8(confidenceMap * 255), fullfile(foldername, ...
-        % ADAPTIVE-TV-COVERAGE-OLD: sprintf('AdaptiveTV_confidence_iter%04d.png', iIte)));
-        % ADAPTIVE-TV-COVERAGE-OLD: imwrite(uint8(LambdaMap ./ max(lam_tv_edge, eps) * 255), ...
-        % ADAPTIVE-TV-COVERAGE-OLD: fullfile(foldername, sprintf('AdaptiveTV_lambda_iter%04d.png', iIte)));
-        % ADAPTIVE-TV-COVERAGE-OLD: end
-        % ADAPTIVE-TV-COVERAGE-OLD: % <<< ADAPTIVE-TV-TEST-END (Codex)
-        % >>> ADAPTIVE-TV-SOURCE-AWARE-OLD-BEGIN (Codex)
-        % if use_tv
-        %     if isfield(MNZ_result, 'ValidMaskHard')
-        %         coverageCount = sum(cat(3, MNZ_result.ValidMaskHard{:}), 3);
-        %     else
-        %         coverageCount = double(TotalWeight > outputOptions.validMaskThreshold);
-        %     end
-        %     maxCoverage = max(coverageCount(:));
-        %     confidenceMap = coverageCount ./ max(maxCoverage, 1);
-        %     reliableTVMask = coverageCount > 0;
-        %
-        %     % Multi-plane relative disagreement. The reliable-center baseline
-        %     % is removed so a global source change does not increase TV everywhere.
-        %     residualFloor = 0.01 * mean(abs(ImgRec(reliableTVMask)).^2, 'all');
-        %     residualDenominator = abs(ImgRec).^2 + residualFloor + eps('like', real(ImgRec));
-        %     residualEnergy = sum(MaskStack .* abs(Stack - ImgRec).^2, 3) ./ ...
-        %         max(TotalWeight, eps('like', TotalWeight));
-        %     uncertaintyRaw = sqrt(residualEnergy ./ residualDenominator);
-        %     uncertaintyRawCPU = gather(real(uncertaintyRaw));
-        %     coreMask = reliableTVMask & confidenceMap >= 0.9;
-        %     if any(coreMask(:))
-        %         uncertaintyBaseline = median(uncertaintyRawCPU(coreMask), 'all');
-        %     else
-        %         uncertaintyBaseline = median(uncertaintyRawCPU(reliableTVMask), 'all');
-        %     end
-        %     uncertaintyExcess = max(uncertaintyRawCPU - uncertaintyBaseline, 0);
-        %     positiveUncertainty = uncertaintyExcess(reliableTVMask & uncertaintyExcess > 0);
-        %     if isempty(positiveUncertainty)
-        %         uncertaintyScale = 1;
-        %     else
-        %         uncertaintyScale = prctile(positiveUncertainty, 95);
-        %     end
-        %     uncertaintyMap = min(uncertaintyExcess ./ max(uncertaintyScale, eps), 1);
-        %
-        %     % Keep the user's current limits and rise speed.
-        %     lam_tv_center = lam_tv;
-        %     lam_tv_edge =10 * lam_tv;
-        %     lam_tv_power = 3;
-        %     coverageRiskWeight = 0.6;
-        %     uncertaintyRiskWeight = 0.2;
-        %     riskMap = coverageRiskWeight .* (1 - confidenceMap).^lam_tv_power + ...
-        %         uncertaintyRiskWeight .* uncertaintyMap;
-        %     riskMap = min(max(riskMap, 0), 1);
-        %     LambdaMap = lam_tv_center + (lam_tv_edge - lam_tv_center) .* riskMap;
-        %     LambdaMap(~reliableTVMask) = 0;
-        %
-        %     % Df(:,:,1): y-gradient; Df(:,:,2): x-gradient. Read the calibrated
-        %     % pre-shift source position so the direction weights follow the source.
-        %     sourceM = MNZ_result.M;
-        %     sourceN = MNZ_result.N;
-        %     if isfield(MNZ_result, 'orig_M'), sourceM = MNZ_result.orig_M; end
-        %     if isfield(MNZ_result, 'orig_N'), sourceN = MNZ_result.orig_N; end
-        %     shiftMagnitude = max(abs([sourceM, sourceN]));
-        %     if shiftMagnitude > 0
-        %         directionWeightY = 1 + 0.5 * abs(sourceN) / shiftMagnitude;
-        %         directionWeightX = 1 + 0.5 * abs(sourceM) / shiftMagnitude;
-        %     else
-        %         directionWeightY = 1;
-        %         directionWeightX = 1;
-        %     end
-        %
-        %     validGradVertical = reliableTVMask & reliableTVMask([2:end,end],:);
-        %     validGradVertical(end,:) = false;
-        %     validGradHorizontal = reliableTVMask & reliableTVMask(:,[2:end,end]);
-        %     validGradHorizontal(:,end) = false;
-        %     validGradientMask = cat(3, validGradVertical, validGradHorizontal);
-        %     lambdaVertical = directionWeightY .* max(LambdaMap, LambdaMap([2:end,end],:));
-        %     lambdaHorizontal = directionWeightX .* max(LambdaMap, LambdaMap(:,[2:end,end]));
-        %     LambdaGradient = cat(3, lambdaVertical, lambdaHorizontal);
-        %     LambdaGradient(~validGradientMask) = 0;
-        %
-        %     v_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
-        %     w_est = zeros(size(Object,1), size(Object,2), 2, 'like', Object);
-        %     LambdaGradientLike = cast(LambdaGradient, 'like', Object);
-        %     validGradientMaskLike = cast(validGradientMask, 'like', Object);
-        %     for subiter = 1:n_subiters_tv
-        %         w_next = v_est + (1 / (8 * gam_tv)) * ...
-        %             Df(Object - gam_tv * DTf(v_est));
-        %         w_next = min(abs(w_next), LambdaGradientLike) .* exp(1j .* angle(w_next));
-        %         w_next = w_next .* validGradientMaskLike;
-        %         v_est = w_next + (subiter / (subiter + 3)) * (w_next - w_est);
-        %         w_est = w_next;
-        %     end
-        %     Object_tv_candidate = Object - gam_tv * DTf(w_est);
-        %     Object(reliableTVMask) = Object_tv_candidate(reliableTVMask);
-        %     Object(reliableTVMask) = min(abs(Object(reliableTVMask)), 1.05) .* ...
-        %         exp(1j .* angle(Object(reliableTVMask)));
-        %
-        %     save(fullfile(foldername, sprintf('AdaptiveTV_iter%04d.mat', iIte)), ...
-        %         'coverageCount', 'confidenceMap', 'uncertaintyRawCPU', ...
-        %         'uncertaintyBaseline', 'uncertaintyMap', 'riskMap', ...
-        %         'reliableTVMask', 'LambdaMap', 'LambdaGradient', ...
-        %         'lam_tv_center', 'lam_tv_edge', 'lam_tv_power', ...
-        %         'coverageRiskWeight', 'uncertaintyRiskWeight', ...
-        %         'sourceM', 'sourceN', 'directionWeightY', 'directionWeightX');
-        %     imwrite(uint8(confidenceMap * 255), fullfile(foldername, ...
-        %         sprintf('AdaptiveTV_confidence_iter%04d.png', iIte)));
-        %     imwrite(uint8(uncertaintyMap * 255), fullfile(foldername, ...
-        %         sprintf('AdaptiveTV_uncertainty_iter%04d.png', iIte)));
-        %     imwrite(uint8(riskMap * 255), fullfile(foldername, ...
-        %         sprintf('AdaptiveTV_risk_iter%04d.png', iIte)));
-        %     imwrite(uint8(LambdaMap ./ max(lam_tv_edge, eps) * 255), ...
-        %         fullfile(foldername, sprintf('AdaptiveTV_lambda_iter%04d.png', iIte)));
-        % end
-        % <<< ADAPTIVE-TV-SOURCE-AWARE-OLD-END (Codex)
-
-        % >>> ADAPTIVE-TV-CROP-CENTER-TEST-BEGIN (Codex)
         if use_tv
             if isfield(MNZ_result, 'ValidMaskHard')
                 coverageCount = sum(cat(3, MNZ_result.ValidMaskHard{:}), 3);
@@ -616,7 +395,7 @@ for iIte = 1 : nIterative
 
             % User-adjustable TV parameters.
             lam_tv_center = lam_tv;
-            lam_tv_edge = 50* lam_tv;
+            lam_tv_edge = 10* lam_tv;
             lam_tv_power = 5;
             coverageRiskWeight = 0.8;
             uncertaintyRiskWeight = 0.2;
@@ -745,22 +524,7 @@ for iIte = 1 : nIterative
             ImgRec = ImgRec .* cast(SupportMask, 'like', ImgRec);
         end
 
-        % >>> OUTPUT-FOV-OLD-BEGIN
-        % % Keep the union of all shifted fields of view. For a non-rectangular
-        % % union, invalid pixels in the smallest enclosing rectangle are zero.
-        % outputValidMask = TotalWeight > outputOptions.validMaskThreshold;
-        % if isfield(MNZ_result, 'OutputValidMask')
-        %     outputValidMask = logical(MNZ_result.OutputValidMask);
-        % end
-        % [Object, outputValidMask, outputBounds] = cropToValidFOV( ...
-        %     Object, outputValidMask, outputOptions);
-        % save(fullfile(foldername, 'OutputFOV.mat'), ...
-        %     'outputValidMask', 'outputBounds');
-        %
-        % save(fullfile(foldername, sprintf("Object_iter%04d.mat", iIte)), 'Object');
-        % <<< OUTPUT-FOV-OLD-END
 
-        % >>> OUTPUT-UNION-TRUSTED-FOV-BEGIN (Codex)
         if isfield(MNZ_result, 'UnionMask')
             outputUnionMask = logical(MNZ_result.UnionMask);
         else
@@ -807,9 +571,7 @@ for iIte = 1 : nIterative
 
 
         % 使用 imadjust 拉伸对比度
-        % >>> AMP-DISPLAY-FIX-BEGIN (Codex)
         amp_gray = mat2gray(ampObj);
-        % <<< AMP-DISPLAY-FIX-END (Codex)
         phs_uint8 = (mat2gray(phsObj));
 
 

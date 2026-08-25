@@ -84,11 +84,10 @@ n_subiters_tv = 20;     % TV inner loops
 
 %% ---------- Support Constraint Parameters ----------
 use_support = false;
-% SUPPORT-WINDOW-FIX-OLD: support_pad = 30; % Original line had win_r appended after the comment.
-% >>> SUPPORT-WINDOW-FIX-BEGIN (Codex)
+
 support_pad = 30;
 win_r       = tukeywin(mRow, 2*support_pad/mRow);
-% <<< SUPPORT-WINDOW-FIX-END (Codex)
+
 win_c       = tukeywin(nCol, 2*support_pad/nCol);
 SupportMask = win_r * win_c';
 %% ---------- Precompute propagation distances to each plane ----------
@@ -110,36 +109,21 @@ runStamp = datestr(now, 'yyyymmdd_HHMMSS');
 Parent_foldername = fullfile(".\ResultFolder", sprintf("APRW_%s_N%d_I%d_rec%d", runStamp, n_img, nIterative, iIte_record));
 if ~exist(Parent_foldername, 'dir'); mkdir(Parent_foldername); end
 
-% >>> FULL-CANVAS-INITIALIZATION-OLD-BEGIN
-% % ---------- Initialization ----------
-% % Initialize complex field estimate at plane 1 using sqrt of first intensity
-% ImgRec = sqrt(img_set{1});
-% ImgRec = ImgRec .* IllumPattern;  % apply illumination modulation if needed
-% <<< FULL-CANVAS-INITIALIZATION-OLD-END
-
-% >>> MASKED-INITIALIZATION-TEST-BEGIN (Codex)
 initialAmp = sqrt(img_set{1});
-% >>> SOFT-INITIALIZATION-MASK-OLD-BEGIN
-% if isfield(MNZ_result, 'ValidMask') && ~isempty(MNZ_result.ValidMask)
-%     initialMask = cast(MNZ_result.ValidMask{1}, 'like', initialAmp);
-% else
-%     initialMask = ones(size(initialAmp), 'like', initialAmp);
-% end
-% <<< SOFT-INITIALIZATION-MASK-OLD-END
-% >>> HARD-INITIALIZATION-MASK-TEST-BEGIN (Codex)
+
 if isfield(MNZ_result, 'ValidMaskHard') && ~isempty(MNZ_result.ValidMaskHard)
     initialMask = cast(MNZ_result.ValidMaskHard{1}, 'like', initialAmp);
 else
     initialMask = ones(size(initialAmp), 'like', initialAmp);
 end
-% <<< HARD-INITIALIZATION-MASK-TEST-END (Codex)
+
 initialMask = min(max(initialMask, 0), 1);
 initialBackgroundAmp = sum(initialMask(:) .* initialAmp(:)) ./ ...
     max(sum(initialMask(:)), eps('like', initialAmp));
 initialAmp = initialMask .* initialAmp + ...
     (1 - initialMask) .* initialBackgroundAmp;
 ImgRec = initialAmp .* IllumPattern;
-% <<< MASKED-INITIALIZATION-TEST-END (Codex)
+
 
 % Store modulated guesses from previous iterations for weighted feedback
 ImgRec_record1 = cell(1, n_img);  % g~_{k-1}(n)
@@ -150,7 +134,7 @@ ImgRec_record2 = cell(1, n_img);  % g~_{k-2}(n)
 % hFig = figure('Name', 'APRW / Weighted Feedback Monitor');
 % ax1 = subplot(1,2,1, 'Parent', hFig);
 % ax2 = subplot(1,2,2, 'Parent', hFig);
-% 
+%
 % % placeholders
 % hAmp = imshow(zeros(mRow,nCol), [], 'Parent', ax1); title(ax1, 'Amplitude');
 % hPhs = imshow(zeros(mRow,nCol), [], 'Parent', ax2); title(ax2, 'Phase');
@@ -203,8 +187,6 @@ for iIte = 1 : nIterative
         thisAmpImg      = img_set{iImg}.^0.5;
 
 
-
-        % >>> MASKED-AMPLITUDE-REPLACEMENT-TEST-BEGIN (Codex)
         predictedAmp = abs(lightOnDetector);
         thisAmpImg_gpu = cast(thisAmpImg, 'like', predictedAmp);
 
@@ -215,7 +197,7 @@ for iIte = 1 : nIterative
         else
             measurementMask = ones(size(predictedAmp), 'like', predictedAmp);
         end
-        % <<< HARD-AMPLITUDE-MASK-TEST-END (Codex)
+
         measurementMask = min(max(measurementMask, 0), 1);
 
         % Evaluate R-factor only where measured information is valid.
@@ -230,7 +212,6 @@ for iIte = 1 : nIterative
         updatedAmp = measurementMask .* thisAmpImg_gpu + ...
             (1 - measurementMask) .* predictedAmp;
         lightOnDetector = updatedAmp .* exp(1j .* angle(lightOnDetector));
-        % <<< MASKED-AMPLITUDE-REPLACEMENT-TEST-END (Codex)
 
         % (3) Back propagate to object plane => g_k(n)
         ImgRec_record{iImg} = propGPU( ...
@@ -247,19 +228,19 @@ for iIte = 1 : nIterative
         ImgRec_record{iImg} = g;
 
         % ----- Display amplitude & phase for current plane guess -----
-%         roi = g(MarginY+1:MarginY+mRow, MarginX+1:MarginX+nCol);
-% 
-%         AmpImgRec = gather(abs(roi));
-%         PhsImgRec = gather(angle(roi));
-% 
-%         AmpImgRec  = mat2gray(AmpImgRec);
-%         PhsImgRec  = mat2gray(PhsImgRec);
-%         title_name = sprintf('APRW (weighted feedback), Iter=%d, Img=%d, z=%0.3f mm', iIte, iImg, z_mm);
-% 
-%         set(hAmp, 'CData', AmpImgRec); xlabel(ax1, 'Amplitude'); title(ax1, title_name);
-%         set(hPhs, 'CData', PhsImgRec); xlabel(ax2, 'Phase');
-% 
-%         drawnow;
+        %         roi = g(MarginY+1:MarginY+mRow, MarginX+1:MarginX+nCol);
+        %
+        %         AmpImgRec = gather(abs(roi));
+        %         PhsImgRec = gather(angle(roi));
+        %
+        %         AmpImgRec  = mat2gray(AmpImgRec);
+        %         PhsImgRec  = mat2gray(PhsImgRec);
+        %         title_name = sprintf('APRW (weighted feedback), Iter=%d, Img=%d, z=%0.3f mm', iIte, iImg, z_mm);
+        %
+        %         set(hAmp, 'CData', AmpImgRec); xlabel(ax1, 'Amplitude'); title(ax1, title_name);
+        %         set(hPhs, 'CData', PhsImgRec); xlabel(ax2, 'Phase');
+        %
+        %         drawnow;
     end
 
     % Update history buffers for weighted feedback
@@ -282,9 +263,7 @@ for iIte = 1 : nIterative
     % Absorption Constraint (吸收约束):
     % 真实的纯相位或弱吸收物体，其透射率振幅物理上不能超过 1（不能放大光）。
     % 给予 1.05 的微小宽容度，防止算法为了强行拟合误差而在图像中产生极其刺眼的高亮噪点。
-    % >>> IMGREC-CONSTRAINT-FIX-BEGIN (Codex)
     ImgRec = min(abs(ImgRec), 1.05) .* exp(1j * angle(ImgRec));
-    % <<< IMGREC-CONSTRAINT-FIX-END (Codex)
 
     % Support Constraint
     if use_support
@@ -302,7 +281,7 @@ for iIte = 1 : nIterative
         d1 = abs(R_history(iIte) - R_history(iIte-1));
         d2 = abs(R_history(iIte-1) - R_history(iIte-2));
         % 如果连续两次迭代 R-factor 的变化极小，认为收敛
-        if d1 < 5e-3 && d2 < 5e-3
+        if d1 < 0.5e-3 && d2 < 0.5e-3
             is_converged = true;
             fprintf('R-factor 变化极小，算法收敛，将执行最后一次保存并提前停止！\n');
         end
@@ -375,9 +354,8 @@ for iIte = 1 : nIterative
         Illum_Sample = exp(1j * k0_wave .* r_sample);
 
         % 3. 在样品面上，去除球面波的相位，得到真实的纯物体透射率
-        % >>> OBJECT-INIT-FIX-BEGIN (Codex)
+
         Object = Object_full .* exp(-1j * angle(Illum_Sample));
-        % <<< OBJECT-INIT-FIX-END (Codex)
 
         % Save phase at three stages with one fixed [-pi, pi] display scale.
         % This distinguishes iterative-boundary artifacts from back-propagation
@@ -595,8 +573,6 @@ for iIte = 1 : nIterative
         save(fullfile(foldername, sprintf("Object_iter%04d.mat", iIte)), 'Object');
         save(fullfile(foldername, sprintf("Object_trusted_iter%04d.mat", iIte)), ...
             'Object_trusted', 'outputTrustedMask', 'trustedMinCoverage');
-        % <<< OUTPUT-UNION-TRUSTED-FOV-END (Codex)
-
 
         % 3. 外围盲区相位置零
         % Invalid pixels were zero-filled by cropToValidFOV above.
@@ -606,11 +582,7 @@ for iIte = 1 : nIterative
         ampObj = abs(Object);
         phsObj = angle(Object);
 
-
-        % 使用 imadjust 拉伸对比度
-        % >>> AMP-DISPLAY-FIX-BEGIN (Codex)
         amp_gray = mat2gray(ampObj);
-        % <<< AMP-DISPLAY-FIX-END (Codex)
         phs_uint8 = (mat2gray(phsObj));
 
 

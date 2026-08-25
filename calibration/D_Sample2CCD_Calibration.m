@@ -18,7 +18,10 @@ tic
 ObjectPower = zeros(1,n_distance);
 for i = 1 : n_distance
     Object = propGPU(ImgRec,PixelSize,WaveLength,-D_Sample2CCD_arr(:,i)); %重建的图传回Object平面
-    ObjectFT = fft2(abs(Object));
+    Object_amp = abs(Object);
+    Object_filt = imgaussfilt(Object_amp, 2); % 对振幅进行高斯滤波
+    Object_filt = Object_amp - Object_filt + 1e-6;;
+    ObjectFT = fft2(Object_filt);
     ObjectPower(:,i) = sum(sum(abs(ObjectFT)));
 end
 
