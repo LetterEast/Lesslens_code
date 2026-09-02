@@ -2,9 +2,9 @@ clc;
 close all;
 clear;
 
-folder_pixel_on  = "\\192.168.2.166\d\lesslens\2026.6.8\USAF_1951_4\pixel_on\exposure_-2";
-folder_pixel_off = "\\192.168.2.166\d\lesslens\2026.6.8\USAF_1951_4\pixel_off\exposure_-2";
-folder_output = "\\192.168.2.166\d\lesslens\2026.6.8\USAF_1951_4\foreground_img";
+folder_pixel_on  = "\\192.168.2.166\d\lesslens\2026.9.2\USAF_1951_3\G\Pixel_218_315\pixel_on\exposure_-1";
+folder_pixel_off = "\\192.168.2.166\d\lesslens\2026.9.2\USAF_1951_3\G\Pixel_218_315\pixel_off\exposure_-1";
+folder_output = "\\192.168.2.166\d\lesslens\2026.9.2\USAF_1951_3\G\foreground_img";
 if ~exist(folder_output, 'dir')
     mkdir(folder_output);
 end

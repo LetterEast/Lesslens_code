@@ -1,10 +1,10 @@
 clc; clear; close all;
 addpath(genpath(pwd));
 
-img_folder = 'D:\Desktop\data\2026\rgb\img';
-MNZ_result_folder = 'D:\Desktop\data\2026\rgb\MNZ';
+img_folder = 'D:\Desktop\data\2026\9.1\Pawpaw\img';
+MNZ_result_folder = 'D:\Desktop\data\2026\9.1\Pumpkin_sec\MNZ';
 
-output_folder = 'D:\Desktop\data\2026\rgb\result';
+output_folder = 'D:\Desktop\data\2026\9.1\Pawpaw\color_fusion_result';
 
 % 过滤掉隐藏文件夹 '.' 和 '..'
 dirs = dir(fullfile(img_folder, '*'));
@@ -14,12 +14,12 @@ num_folder = length(img_info);
 
 WaveLength                   = [460e-9, 514e-9, 647e-9]; % 通常分别对应 B, G, R
 MainPara.PixelSize           = 3e-6;                            % [m/pixel] sensor effective pixel size
-MainPara.nIterative          = 10;                              % iteration count
-MainPara.numImages           = 5;                               % number of captured positions/images
-MainPara.DistanceIntervalSet = [0, ones(1, MainPara.numImages-1)] * 1e-3; % [m] distance interval between adjacent captures
+MainPara.nIterative          = 6;                              % iteration count
+MainPara.numImages           = 61;                               % number of captured positions/images
+MainPara.DistanceIntervalSet = [0, ones(1, MainPara.numImages-1)] * 0.1e-3; % [m] distance interval between adjacent captures
 
-MainPara.ParaD_Sample2CCD.D_Sample2CCDPre = 1.65e-3;        % [m]
-MainPara.ParaD_Sample2CCD.D_Sample2CCDHalfRange = 0.5e-3;  % [m]
+MainPara.ParaD_Sample2CCD.D_Sample2CCDPre = 1.68e-3;        % [m]
+MainPara.ParaD_Sample2CCD.D_Sample2CCDHalfRange = 0e-3;  % [m]
 MainPara.ParaD_Sample2CCD.rough = 0.01e-3;               % [m] 粗测步长
 
 iIte_record = MainPara.nIterative;

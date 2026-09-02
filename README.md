@@ -1,36 +1,63 @@
-# Lensless Holographic Imaging Reconstruction
+# Lensless APRW reconstruction
 
-This repository provides a complete MATLAB pipeline for multi-distance and multi-angle in-line lensless holographic imaging reconstruction.
+项目按照 CCTV-phase-retrieval 的层级重新整理，数据创建和重建完全分离。
 
-## Features
-- **Multi-distance/Multi-angle Phase Retrieval**: Robust framework using APRW (MDPRF style) with Nesterov-like weighted feedback momentum.
-- **Alias-Free Off-axis Angular Spectrum Propagation**: GPU-accelerated propagation capable of exact frequency demodulation to avoid aliasing artifacts caused by high-angle illuminations.
-- **Physical Optimization Integration**: Includes physical bounds constraint mapping and CCTV (Complex Total Variation) capabilities to suppress speckle noise.
-- **Data-Driven Image Alignment**: Subpixel shift registration for automatic Z-stack and multi-angle hologram alignment.
+## 目录
 
-## Getting Started
+```text
+Lesslens code/
+├─ main/
+│  ├─ create_input_data.m   # 创建统一重建输入
+│  ├─ reconstruct.m         # 标准重建
+│  └─ reconstruct_fast.m    # 无窗口快速重建
+├─ src/
+│  ├─ APRW.m                # 重建、自动聚焦和结果保存
+│  ├─ prepareMeasurements.m # 图像读取与配准
+│  └─ propagate.m           # 同轴角谱传播
+├─ data/
+│  ├─ calibration/          # MNZ 标定数据
+│  └─ reconstruction_input.mat
+├─ tools/                   # 与主重建无关的实验脚本
+└─ ResultFolder/            # 重建结果
+```
 
-1. Clone or download this repository.
-2. Open MATLAB and navigate to the project directory.
-3. Open `main.m` or `batch_run.m`.
-4. Modify the `RawImgFolder` to point to your holographic data.
-5. Set your physical parameters:
-   - `WaveLength` (e.g., 514 nm)
-   - `PixelSize` (sensor pixel pitch)
-   - `DistanceIntervalSet` (propagation distances)
-6. Run the script. The script performs reconstruction and will save out amplitude and phase profiles automatically inside a `ResultFolder`.
+## 使用方法
 
-## Code Structure
-- `/core`: Main iterative solver algorithms (`getRec_APRW`), angular spectrum operators (`propGPU`), and illumination modelling.
-- `/utils`: Helpful subroutines for image loading, pre-processing, sub-pixel shift bounding (`dftregistration`), and object mapping.
-- `/calibration`: Code for calibrating optical distance parameters.
-- `main.m`: Standard execution entry point.
-- `batch_run.m`: Loops over multiple folders to reconstruct large datasets automatically.
+### 1. 创建输入数据
 
-## Requirements
-- MATLAB (Tested on recent versions)
-- Parallel Computing Toolbox (for `gpuArray` acceleration)
-- Image Processing Toolbox
+编辑 `main/create_input_data.m` 顶部的图像目录、标定文件、波长、像素尺寸和距离步长，然后运行：
 
-## Acknowledgements
-Contains implementations adapted from the CCTV phase retrieval constraints and anti-aliasing Angular Spectrum solutions.
+```matlab
+cd main
+create_input_data
+```
+
+程序生成 `data/reconstruction_input.mat`。输入图像应当已经完成项目外的预处理。
+
+### 2. 重建
+
+带实时显示：
+
+```matlab
+reconstruct
+```
+
+无窗口快速版本：
+
+```matlab
+reconstruct_fast
+```
+
+两个重建入口只读取 `data/reconstruction_input.mat`，不会访问原始图像或重新配准。
+
+## 输出
+
+结果保存在 `ResultFolder/APRW_*/Iter_XXXX/`：
+
+- `Object_amp_*`、`Object_phs_*`：扩大视场结果；
+- `Object_originalFOV_*`：严格裁回第一张输入图尺寸的结果；
+- `Object_trusted_*`：至少两个测量面覆盖的可靠区域；
+- `autofocus.mat`：自动聚焦距离与评价曲线；
+- `meta.mat`：重建参数。
+
+需要 MATLAB Image Processing Toolbox；有可用 GPU 时会自动加速，否则使用 CPU。
