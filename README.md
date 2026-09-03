@@ -52,12 +52,27 @@ reconstruct_fast
 
 ## 输出
 
-结果保存在 `ResultFolder/APRW_*/Iter_XXXX/`：
+结果保存在 `ResultFolder/APRW_*/Iter_XXXX/`，并分为：
 
-- `Object_amp_*`、`Object_phs_*`：扩大视场结果；
-- `Object_originalFOV_*`：严格裁回第一张输入图尺寸的结果；
-- `Object_trusted_*`：至少两个测量面覆盖的可靠区域；
-- `autofocus.mat`：自动聚焦距离与评价曲线；
-- `meta.mat`：重建参数。
+```text
+results/
+├─ reconstruction.mat
+├─ amplitude.png
+├─ phase_heatmap.png
+├─ originalFOV_amplitude.png
+└─ originalFOV_phase_heatmap.png
+
+diagnostics/
+├─ autofocus.mat
+├─ adaptive_tv.mat
+├─ coverage_confidence.png
+├─ tv_risk.png
+├─ tv_lambda.png
+└─ meta.mat
+```
+
+相位热力图使用中心视场相位的 1%–99% 分位范围抑制边缘离群值，再使用 `hot` 色表增强物体相位特征。实际显示范围保存在 `reconstruction.mat` 的 `phaseDisplayLimits` 和 `originalPhaseDisplayLimits` 中。重建默认启用样品面自适应复数 TV，最大重叠区域受到保护，低覆盖边缘约束更强。
+
+`results/reconstruction.mat` 同时保存 APRW 得到的参考面复场 `field`、TV 后样品面结果 `object` 和严格原始视场结果 `objectOriginalFOV`。因此可以在不重新运行 APRW 的情况下重新自动聚焦或改变反向传播距离。
 
 需要 MATLAB Image Processing Toolbox；有可用 GPU 时会自动加速，否则使用 CPU。

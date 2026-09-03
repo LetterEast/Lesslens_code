@@ -12,12 +12,13 @@ mainPara.ParaD_Sample2CCD.D_Sample2CCDHalfRange = options.focus.halfRange;
 mainPara.ParaD_Sample2CCD.rough = options.focus.step;
 mainPara.Output = options.output;
 mainPara.Runtime.showFigures = options.showFigures;
+mainPara.TV = options.tv;
 mainPara.IllumSet = sphericalIllumination(size(imgSet{1}), ...
     inputData.geometry, inputData.pixelSize, inputData.wavelength);
 recordEvery = options.recordEvery;
 
 nIterations = mainPara.nIterative;
-if nargin < 4 || isempty(recordEvery), recordEvery = nIterations; end
+if isempty(recordEvery), recordEvery = nIterations; end
 nImages = numel(imgSet);
 distanceSteps = distanceSteps(:).';
 if numel(distanceSteps) ~= nImages
@@ -43,8 +44,9 @@ if ~isfolder(runFolder), mkdir(runFolder); end
 
 hardMasks = getMasks(mnz, 'ValidMaskHard', nImages, size(imgSet{1}), false);
 softMasks = getMasks(mnz, 'ValidMask', nImages, size(imgSet{1}), true);
-outputMask = any(cat(3, hardMasks{:}), 3);
-trustedMask = sum(cat(3, hardMasks{:}), 3) >= min(2, nImages);
+coverageCount = sum(cat(3, hardMasks{:}), 3);
+outputMask = coverageCount >= 1;
+trustedMask = coverageCount >= min(2, nImages);
 
 initialAmplitude = sqrt(max(imgSet{1}, 0));
 initialMask = cast(hardMasks{1}, 'like', initialAmplitude);
@@ -54,8 +56,10 @@ initialAmplitude = initialMask .* initialAmplitude + ...
     (1 - initialMask) .* background;
 field = initialAmplitude .* mainPara.IllumSet;
 
-feedbackA = 0.7;
-feedbackB = -0.13 * feedbackA + 0.6;
+% feedbackA = 0.7;
+% feedbackB = -0.13 * feedbackA + 0.6;
+feedbackA = 0;
+feedbackB = 0;
 previous = cell(1, nImages);
 previous2 = cell(1, nImages);
 rHistory = nan(nIterations, 1);
@@ -121,6 +125,13 @@ for iteration = 1:nIterations
         max(totalWeight, eps('like', totalWeight));
     field = min(abs(field), 1.05) .* exp(1i * angle(field));
 
+    % Retain inter-plane disagreement for object-domain adaptive TV.
+    residualFloor = 0.01 * mean(abs(field(outputMask)).^2, 'all');
+    residualEnergy = sum(weightStack .* abs(guessStack - field).^2, 3) ./ ...
+        max(totalWeight, eps('like', totalWeight));
+    planeUncertainty = sqrt(residualEnergy ./ ...
+        (abs(field).^2 + residualFloor + eps('like', real(field))));
+
     rHistory(iteration) = sqrt(errorNumerator / max(errorDenominator, eps));
     fprintf('Iteration %d/%d: R-factor = %.6f\n', ...
         iteration, nIterations, rHistory(iteration));
@@ -132,8 +143,8 @@ for iteration = 1:nIterations
     if shouldRecord
         recordedFields{end+1, 1} = field; %#ok<AGROW>
         saveIteration(field, iteration, runFolder, mainPara, zPositions, ...
-            feedbackA, feedbackB, rHistory, outputMask, trustedMask, ...
-            cropOutput, zeroInvalid);
+            feedbackA, feedbackB, rHistory, coverageCount, ...
+            planeUncertainty, outputMask, trustedMask, cropOutput, zeroInvalid);
     end
     if converged
         fprintf('R-factor has converged; stopping after iteration %d.\n', iteration);
@@ -151,12 +162,15 @@ fprintf('Results saved to: %s\n', runFolder);
 end
 
 function saveIteration(field, iteration, runFolder, mainPara, zPositions, ...
-        feedbackA, feedbackB, rHistory, outputMask, trustedMask, ...
-        cropOutput, zeroInvalid)
+        feedbackA, feedbackB, rHistory, coverageCount, planeUncertainty, ...
+        outputMask, trustedMask, cropOutput, zeroInvalid)
 folder = fullfile(runFolder, sprintf('Iter_%04d', iteration));
-if ~isfolder(folder), mkdir(folder); end
+resultsFolder = fullfile(folder, 'results');
+diagnosticsFolder = fullfile(folder, 'diagnostics');
+if ~isfolder(resultsFolder), mkdir(resultsFolder); end
+if ~isfolder(diagnosticsFolder), mkdir(diagnosticsFolder); end
 
-focusDistance = autofocus(field, mainPara, folder);
+focusDistance = autofocus(field, mainPara, diagnosticsFolder);
 objectWithIllumination = propagate(field, mainPara.PixelSize, ...
     mainPara.WaveLength, -focusDistance);
 
@@ -169,40 +183,56 @@ ledY = mainPara.MNZ_result.N * mainPara.PixelSize;
 ledToSample = mainPara.MNZ_result.Z - focusDistance;
 radius = sqrt((x - ledX).^2 + (y - ledY).^2 + ledToSample^2);
 sampleIllumination = exp(1i * (2*pi/mainPara.WaveLength) .* radius);
-object = objectWithIllumination .* exp(-1i * angle(sampleIllumination));
+objectRaw = objectWithIllumination .* exp(-1i * angle(sampleIllumination));
+object = objectRaw;
+
+if mainPara.TV.enabled
+    tvMaps = buildAdaptiveTV(coverageCount, planeUncertainty, ...
+        mainPara.MNZ_result, mainPara.TV);
+    object = applyAdaptiveTV(objectRaw, tvMaps.lambdaGradient, ...
+        tvMaps.gradientMask, tvMaps.reliableMask, mainPara.TV);
+    object(tvMaps.reliableMask) = min(abs(object(tvMaps.reliableMask)), 1.05) .* ...
+        exp(1i * angle(object(tvMaps.reliableMask)));
+    confidence = tvMaps.confidence;
+    uncertainty = tvMaps.uncertainty;
+    risk = tvMaps.risk;
+    lambdaMap = tvMaps.lambdaMap;
+    directionWeightX = tvMaps.directionWeightX;
+    directionWeightY = tvMaps.directionWeightY;
+    tvSettings = mainPara.TV;
+    save(fullfile(diagnosticsFolder, 'adaptive_tv.mat'), ...
+        'coverageCount', 'confidence', 'uncertainty', 'risk', 'lambdaMap', ...
+        'directionWeightX', 'directionWeightY', 'tvSettings');
+    saveTVMaps(diagnosticsFolder, tvMaps, mainPara.TV);
+end
 
 % Save a fixed-size result at the exact location of the first input image.
 % This excludes the low-coverage synthetic field added by later shifts.
 [objectOriginalFOV, originalBounds] = cropFirstImageFOV( ...
     object, mainPara.MNZ_result);
-save(fullfile(folder, sprintf('Object_originalFOV_iter%04d.mat', iteration)), ...
-    'objectOriginalFOV', 'originalBounds');
-originalAmplitude = normalizePercentile(abs(objectOriginalFOV), 1, 99);
-originalPhase = normalizePercentile(angle(objectOriginalFOV), 1, 99);
-imwrite(originalAmplitude, fullfile(folder, sprintf( ...
-    'Object_originalFOV_amp_iter%04d.png', iteration)));
-imwrite(originalPhase, fullfile(folder, sprintf( ...
-    'Object_originalFOV_phs_iter%04d.png', iteration)));
 
 [object, validMask, bounds] = applyOutputMask( ...
     object, outputMask, cropOutput, zeroInvalid);
 trustedMask = trustedMask(bounds(2):bounds(4), bounds(1):bounds(3));
-trustedObject = object;
-trustedObject(~trustedMask) = 0;
+amplitude = normalizePercentile(abs(object), 1, 99);
+originalAmplitude = normalizePercentile(abs(objectOriginalFOV), 1, 99);
+[phaseRGB, phaseDisplayLimits] = phaseHeatmap(angle(object));
+[originalPhaseRGB, originalPhaseDisplayLimits] = ...
+    phaseHeatmap(angle(objectOriginalFOV));
 
-save(fullfile(folder, 'ImgRec.mat'), 'field');
-save(fullfile(folder, sprintf('Object_iter%04d.mat', iteration)), 'object');
-save(fullfile(folder, sprintf('Object_trusted_iter%04d.mat', iteration)), ...
-    'trustedObject', 'trustedMask');
-save(fullfile(folder, 'meta.mat'), 'mainPara', 'zPositions', ...
+save(fullfile(resultsFolder, 'reconstruction.mat'), ...
+    'field', 'object', 'objectOriginalFOV', 'validMask', 'trustedMask', ...
+    'bounds', 'originalBounds', 'focusDistance', ...
+    'phaseDisplayLimits', 'originalPhaseDisplayLimits');
+save(fullfile(diagnosticsFolder, 'meta.mat'), 'mainPara', 'zPositions', ...
     'feedbackA', 'feedbackB', 'rHistory', 'focusDistance', 'bounds', ...
     'originalBounds');
-save(fullfile(folder, 'OutputFOV.mat'), 'validMask', 'trustedMask', 'bounds');
 
-amplitude = normalizePercentile(abs(object), 1, 99);
-phase = normalizePercentile(angle(object), 1, 99);
-imwrite(amplitude, fullfile(folder, sprintf('Object_amp_iter%04d.png', iteration)));
-imwrite(phase, fullfile(folder, sprintf('Object_phs_iter%04d.png', iteration)));
+imwrite(amplitude, fullfile(resultsFolder, 'amplitude.png'));
+imwrite(phaseRGB, fullfile(resultsFolder, 'phase_heatmap.png'));
+imwrite(originalAmplitude, fullfile(resultsFolder, 'originalFOV_amplitude.png'));
+imwrite(originalPhaseRGB, ...
+    fullfile(resultsFolder, 'originalFOV_phase_heatmap.png'));
 end
 
 function [field, bounds] = cropFirstImageFOV(field, mnz)
@@ -257,6 +287,125 @@ save(fullfile(folder, 'autofocus.mat'), ...
 fprintf('Autofocus distance: %.6g m\n', bestDistance);
 end
 
+function maps = buildAdaptiveTV(coverageCount, planeUncertainty, geometry, settings)
+% Adaptive object-domain TV based on overlap, disagreement and shift direction.
+maps.reliableMask = coverageCount > 0;
+maximumCoverage = max(coverageCount(:));
+maps.confidence = coverageCount ./ max(maximumCoverage, 1);
+maps.coverageRisk = (1 - maps.confidence) .^ settings.coveragePower;
+
+uncertainty = gather(real(planeUncertainty));
+coreMask = maps.reliableMask & maps.confidence >= 0.9;
+if any(coreMask(:))
+    baseline = median(uncertainty(coreMask), 'all');
+else
+    baseline = median(uncertainty(maps.reliableMask), 'all');
+end
+uncertaintyExcess = max(uncertainty - baseline, 0);
+positive = uncertaintyExcess(maps.reliableMask & uncertaintyExcess > 0);
+if isempty(positive)
+    uncertaintyScale = 1;
+else
+    uncertaintyScale = prctile(positive, 95);
+end
+maps.uncertainty = min(uncertaintyExcess ./ max(uncertaintyScale, eps), 1);
+
+% Automatically protect the maximum-overlap core and increase TV outward.
+distanceFromCore = bwdist(coreMask);
+boundaryScale = max(distanceFromCore(maps.reliableMask), [], 'all');
+maps.boundaryRisk = (distanceFromCore ./ max(boundaryScale, 1)) .^ ...
+    settings.boundaryPower;
+maps.boundaryRisk(~maps.reliableMask) = 0;
+maps.coreProtectMask = coreMask;
+
+maps.risk = max(settings.coverageWeight .* maps.coverageRisk, ...
+    settings.uncertaintyWeight .* maps.uncertainty);
+maps.risk = max(maps.risk, settings.boundaryWeight .* maps.boundaryRisk);
+maps.risk(coreMask) = 0;
+maps.risk(~maps.reliableMask) = 0;
+maps.risk = min(max(maps.risk, 0), 1);
+maps.lambdaMap = settings.lambdaMin + ...
+    (settings.lambdaMax - settings.lambdaMin) .* maps.risk;
+maps.lambdaMap(~maps.reliableMask) = 0;
+
+sourceM = geometry.M; sourceN = geometry.N;
+if isfield(geometry, 'orig_M'), sourceM = geometry.orig_M; end
+if isfield(geometry, 'orig_N'), sourceN = geometry.orig_N; end
+shiftMagnitude = max(abs([sourceM, sourceN]));
+if shiftMagnitude > 0
+    maps.directionWeightY = 1 + settings.directionGain * abs(sourceN) / shiftMagnitude;
+    maps.directionWeightX = 1 + settings.directionGain * abs(sourceM) / shiftMagnitude;
+else
+    maps.directionWeightY = 1;
+    maps.directionWeightX = 1;
+end
+
+verticalMask = maps.reliableMask & maps.reliableMask([2:end, end], :);
+verticalMask(end, :) = false;
+horizontalMask = maps.reliableMask & maps.reliableMask(:, [2:end, end]);
+horizontalMask(:, end) = false;
+maps.gradientMask = cat(3, verticalMask, horizontalMask);
+lambdaVertical = max(maps.lambdaMap, maps.lambdaMap([2:end, end], :));
+lambdaHorizontal = max(maps.lambdaMap, maps.lambdaMap(:, [2:end, end]));
+lambdaVertical = settings.lambdaMin + maps.directionWeightY .* ...
+    max(lambdaVertical - settings.lambdaMin, 0);
+lambdaHorizontal = settings.lambdaMin + maps.directionWeightX .* ...
+    max(lambdaHorizontal - settings.lambdaMin, 0);
+maps.lambdaGradient = cat(3, lambdaVertical, lambdaHorizontal);
+maps.lambdaGradient(~maps.gradientMask) = 0;
+maps.uncertaintyBaseline = baseline;
+maps.uncertaintyScale = uncertaintyScale;
+maps.sourceM = sourceM;
+maps.sourceN = sourceN;
+end
+
+function saveTVMaps(folder, maps, settings)
+writeMap(maps.confidence, folder, 'coverage_confidence.png');
+writeMap(maps.risk, folder, 'tv_risk.png');
+writeMap(maps.lambdaMap ./ max(settings.lambdaMax, eps), ...
+    folder, 'tv_lambda.png');
+end
+
+function writeMap(map, folder, name)
+image = uint16(min(max(double(map), 0), 1) * 65535);
+imwrite(image, fullfile(folder, name));
+end
+
+function field = applyAdaptiveTV(field, lambdaGradient, ...
+        gradientMask, validMask, settings)
+% Accelerated dual projection for spatially weighted complex TV.
+dual = zeros(size(field, 1), size(field, 2), 2, 'like', field);
+previousDual = dual;
+lambda = cast(lambdaGradient, 'like', field);
+validGradient = cast(gradientMask, 'like', field);
+for subiteration = 1:settings.subiterations
+    projected = dual + (1 / (8 * settings.step)) .* ...
+        forwardDifference(field - settings.step .* adjointDifference(dual));
+    projected = min(abs(projected), lambda) .* exp(1i .* angle(projected));
+    projected = projected .* validGradient;
+    momentum = subiteration / (subiteration + 3);
+    dual = projected + momentum .* (projected - previousDual);
+    previousDual = projected;
+end
+candidate = field - settings.step .* adjointDifference(previousDual);
+field(validMask) = candidate(validMask);
+end
+
+function gradient = forwardDifference(field)
+gradient = cat(3, field - field([2:end, end], :), ...
+    field - field(:, [2:end, end]));
+end
+
+function field = adjointDifference(gradient)
+vertical = gradient(:, :, 1) - gradient([end, 1:end-1], :, 1);
+vertical(1, :) = gradient(1, :, 1);
+vertical(end, :) = -gradient(end-1, :, 1);
+horizontal = gradient(:, :, 2) - gradient(:, [end, 1:end-1], 2);
+horizontal(:, 1) = gradient(:, 1, 2);
+horizontal(:, end) = -gradient(:, end-1, 2);
+field = vertical + horizontal;
+end
+
 function masks = getMasks(mnz, fieldName, count, imageSize, useSoft)
 if isfield(mnz, fieldName) && numel(mnz.(fieldName)) >= count
     masks = mnz.(fieldName)(1:count);
@@ -290,6 +439,21 @@ data = double(gather(data));
 limits = prctile(data(:), [lowPercentile, highPercentile]);
 image = (data - limits(1)) / max(limits(2) - limits(1), eps);
 image = min(max(image, 0), 1);
+end
+
+function [rgb, limits] = phaseHeatmap(phase)
+% Robust contrast stretch from the central field suppresses edge outliers.
+phase = double(gather(phase));
+rowMargin = floor(size(phase, 1) * 0.25);
+columnMargin = floor(size(phase, 2) * 0.25);
+central = phase(rowMargin+1:end-rowMargin, ...
+    columnMargin+1:end-columnMargin);
+limits = prctile(central(:), [1, 99]);
+if limits(2) <= limits(1), limits(2) = limits(1) + eps; end
+normalized = (phase - limits(1)) / (limits(2) - limits(1));
+normalized = min(max(normalized, 0), 1);
+indices = round(normalized * 255) + 1;
+rgb = ind2rgb(indices, hot(256));
 end
 
 function value = getOption(structure, path, defaultValue)

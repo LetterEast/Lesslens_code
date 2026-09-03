@@ -6,7 +6,7 @@ title_folder/
 # 忽略临时数据处理文件夹
 RawImgAverage/
 fish/
-
+main\create_input_data.m
 # 忽略大型数据文件
 *.mat
 *.png
