@@ -16,7 +16,7 @@ shiftX = positions * geometry.M / geometry.Z;
 shiftY = positions * geometry.N / geometry.Z;
 padX = ceil(max(abs(shiftX))) + 200;
 padY = ceil(max(abs(shiftY))) + 200;
-canvasSize = [height + 2*padY, width + 2*padX];
+rawSupport = padarray(ones(height, width), [padY, padX], 0, 'both');
 
 registered = cell(1, count);
 hardMasks = cell(1, count);
@@ -27,11 +27,13 @@ for index = 1:count
         'bicubic', 'OutputView', 'same', 'FillValues', 0);
     registered{index} = max(registered{index}, 0);
 
-    firstColumn = padX + 1 + round(shiftX(index));
-    firstRow = padY + 1 + round(shiftY(index));
-    bounds = [firstColumn, firstRow, ...
-        firstColumn + width - 1, firstRow + height - 1];
-    hardMasks{index} = rectangleMask(canvasSize, bounds);
+    % Transform the support with exactly the same translation as the data.
+    % This prevents rounded analytical bounds from admitting replicated
+    % padding as if it had been measured by the sensor.
+    hardMasks{index} = imtranslate(rawSupport, ...
+        [shiftX(index), shiftY(index)], 'nearest', ...
+        'OutputView', 'same', 'FillValues', 0);
+    hardMasks{index} = hardMasks{index} >= 0.5;
     softMasks{index} = softenMask(hardMasks{index}, 100);
 end
 
@@ -70,15 +72,6 @@ for index = 1:numel(entries)
     if size(image, 3) == 3, image = rgb2gray(image); end
     images{index} = image;
 end
-end
-
-function mask = rectangleMask(canvasSize, bounds)
-mask = false(canvasSize);
-x1 = max(1, bounds(1));
-y1 = max(1, bounds(2));
-x2 = min(canvasSize(2), bounds(3));
-y2 = min(canvasSize(1), bounds(4));
-if x1 <= x2 && y1 <= y2, mask(y1:y2, x1:x2) = true; end
 end
 
 function mask = softenMask(hardMask, transitionWidth)

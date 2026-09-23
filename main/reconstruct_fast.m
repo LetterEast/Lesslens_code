@@ -15,11 +15,11 @@ loaded = load(inputFile, 'inputData');
 options.iterations = 18;
 options.recordEvery = options.iterations;
 options.focus.prior = 1.68e-3;
-options.focus.halfRange = 0e-3;
+options.focus.halfRange = 0.5e-3;
 options.focus.step = 0.01e-3;
 options.tv.enabled = true;
-options.tv.lambdaMin = 8e-3;  % maximum-overlap protected region
-options.tv.lambdaMax = 10e-2;  % single-measurement region
+options.tv.lambdaMin = 2e-3;  % maximum-overlap protected region
+options.tv.lambdaMax = 2e-2;  % single-measurement region
 options.tv.coveragePower = 2;
 options.tv.coverageWeight = 0.8;
 options.tv.uncertaintyWeight = 0.2;
@@ -31,6 +31,15 @@ options.tv.subiterations = 10;
 options.output.rootFolder = fullfile(projectRoot, 'ResultFolder');
 options.output.cropToValidFOV = true;
 options.output.zeroFillInvalid = true;
+options.output.validMaskThreshold = 0.01;
+% Default PNG: largest offset-expanded FOV with multi-plane support.
+% The exact first-camera FOV remains available as originalFOV_amplitude.png.
+options.output.defaultToOriginalFOV = false;
+% Retain the complete offset-expanded union. Sample-plane displacement is
+% handled later when the reconstruction is cropped after back propagation.
+options.output.minimumCoverageCount = 1;
+% 保留全部有测量支持的联合视场；不要仅按传播距离统一内缩边界。
+options.output.trimPropagationBoundary = false;
 options.showFigures = false;
 tic;
 result = APRW(loaded.inputData, options);

@@ -1,4 +1,4 @@
-function recordedFields = APRW(inputData, options)
+function [recordedFields, runFolder] = APRW(inputData, options)
 %APRW Multi-plane reconstruction with weighted feedback and autofocus.
 
 imgSet = inputData.images;
@@ -35,6 +35,8 @@ outputRoot = getOption(mainPara, {'Output', 'rootFolder'}, ...
     fullfile(pwd, 'ResultFolder'));
 cropOutput = getOption(mainPara, {'Output', 'cropToValidFOV'}, true);
 zeroInvalid = getOption(mainPara, {'Output', 'zeroFillInvalid'}, true);
+defaultToOriginalFOV = getOption(mainPara, ...
+    {'Output', 'defaultToOriginalFOV'}, false);
 
 zPositions = cumsum(distanceSteps);
 runStamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
@@ -45,8 +47,27 @@ if ~isfolder(runFolder), mkdir(runFolder); end
 hardMasks = getMasks(mnz, 'ValidMaskHard', nImages, size(imgSet{1}), false);
 softMasks = getMasks(mnz, 'ValidMask', nImages, size(imgSet{1}), true);
 coverageCount = sum(cat(3, hardMasks{:}), 3);
-outputMask = coverageCount >= 1;
-trustedMask = coverageCount >= min(2, nImages);
+weightStack = cat(3, softMasks{:});
+totalWeight = sum(weightStack, 3);
+validMaskThreshold = getOption(mainPara, ...
+    {'Output', 'validMaskThreshold'}, 0.01);
+minimumCoverageFraction = getOption(mainPara, ...
+    {'Output', 'minimumCoverageFraction'}, 0);
+minimumCoverageFraction = min(max(minimumCoverageFraction, 0), 1);
+minimumCoverage = getOption(mainPara, ...
+    {'Output', 'minimumCoverageCount'}, ...
+    max(1, ceil(minimumCoverageFraction * nImages)));
+minimumCoverage = min(max(round(minimumCoverage), 1), nImages);
+measurementSupportMask = totalWeight > validMaskThreshold;
+outputMask = measurementSupportMask & ...
+    coverageCount >= minimumCoverage;
+limitHorizontalToReference = getOption(mainPara, ...
+    {'Output', 'limitHorizontalToReferenceFOV'}, false);
+if limitHorizontalToReference
+    referenceColumns = any(hardMasks{1}, 1);
+    outputMask = outputMask & repmat(referenceColumns, size(outputMask, 1), 1);
+end
+trustedMask = coverageCount >= min(2, nImages) & outputMask;
 
 initialAmplitude = sqrt(max(imgSet{1}, 0));
 initialMask = cast(hardMasks{1}, 'like', initialAmplitude);
@@ -119,11 +140,16 @@ for iteration = 1:nIterations
     previous2 = previous;
     previous = guesses;
     guessStack = cat(3, guesses{:});
-    weightStack = cat(3, softMasks{:});
-    totalWeight = sum(weightStack, 3);
-    field = sum(guessStack .* weightStack, 3) ./ ...
+    weightedField = sum(guessStack .* weightStack, 3) ./ ...
         max(totalWeight, eps('like', totalWeight));
-    field = min(abs(field), 1.05) .* exp(1i * angle(field));
+
+    % Outside the measured support, keep the propagated prediction instead
+    % of forcing the padded field to zero. This prevents a hard aperture
+    % from producing Fresnel ringing during the final back propagation.
+    field = mean(guessStack, 3);
+    field(measurementSupportMask) = weightedField(measurementSupportMask);
+    constrainedField = min(abs(field), 1.05) .* exp(1i * angle(field));
+    field(measurementSupportMask) = constrainedField(measurementSupportMask);
 
     % Retain inter-plane disagreement for object-domain adaptive TV.
     residualFloor = 0.01 * mean(abs(field(outputMask)).^2, 'all');
@@ -144,7 +170,8 @@ for iteration = 1:nIterations
         recordedFields{end+1, 1} = field; %#ok<AGROW>
         saveIteration(field, iteration, runFolder, mainPara, zPositions, ...
             feedbackA, feedbackB, rHistory, coverageCount, ...
-            planeUncertainty, outputMask, trustedMask, cropOutput, zeroInvalid);
+            planeUncertainty, outputMask, trustedMask, cropOutput, ...
+            zeroInvalid, defaultToOriginalFOV);
     end
     if converged
         fprintf('R-factor has converged; stopping after iteration %d.\n', iteration);
@@ -163,7 +190,8 @@ end
 
 function saveIteration(field, iteration, runFolder, mainPara, zPositions, ...
         feedbackA, feedbackB, rHistory, coverageCount, planeUncertainty, ...
-        outputMask, trustedMask, cropOutput, zeroInvalid)
+        outputMask, trustedMask, cropOutput, zeroInvalid, ...
+        defaultToOriginalFOV)
 folder = fullfile(runFolder, sprintf('Iter_%04d', iteration));
 resultsFolder = fullfile(folder, 'results');
 diagnosticsFolder = fullfile(folder, 'diagnostics');
@@ -206,30 +234,50 @@ if mainPara.TV.enabled
     saveTVMaps(diagnosticsFolder, tvMaps, mainPara.TV);
 end
 
-% Save a fixed-size result at the exact location of the first input image.
-% This excludes the low-coverage synthetic field added by later shifts.
+[safeOutputMask, propagationMargin] = propagationSafeMask( ...
+    outputMask, zPositions, focusDistance, mainPara);
+[safeOutputMask, samplePlaneTrimPixels, objectPlaneOffsetPixels] = ...
+    trimExpandedSamplePadding( ...
+    safeOutputMask, mainPara.MNZ_result, focusDistance);
+trustedMask = trustedMask & safeOutputMask;
+
+% Keep the first detector-facing edge fixed. Only trim the over-expanded
+% side introduced by tilted-source registration and object back propagation.
 [objectOriginalFOV, originalBounds] = cropFirstImageFOV( ...
     object, mainPara.MNZ_result);
-
 [object, validMask, bounds] = applyOutputMask( ...
-    object, outputMask, cropOutput, zeroInvalid);
+    object, safeOutputMask, cropOutput, zeroInvalid);
 trustedMask = trustedMask(bounds(2):bounds(4), bounds(1):bounds(3));
-amplitude = normalizePercentile(abs(object), 1, 99);
+unionAmplitude = normalizePercentile(abs(object), 1, 99);
 originalAmplitude = normalizePercentile(abs(objectOriginalFOV), 1, 99);
-[phaseRGB, phaseDisplayLimits] = phaseHeatmap(angle(object));
+[unionPhaseRGB, phaseDisplayLimits] = phaseHeatmap(angle(object));
 [originalPhaseRGB, originalPhaseDisplayLimits] = ...
     phaseHeatmap(angle(objectOriginalFOV));
+
+if defaultToOriginalFOV
+    amplitude = originalAmplitude;
+    phaseRGB = originalPhaseRGB;
+    defaultView = 'original_camera_fov';
+else
+    amplitude = unionAmplitude;
+    phaseRGB = unionPhaseRGB;
+    defaultView = 'shifted_union_fov';
+end
 
 save(fullfile(resultsFolder, 'reconstruction.mat'), ...
     'field', 'object', 'objectOriginalFOV', 'validMask', 'trustedMask', ...
     'bounds', 'originalBounds', 'focusDistance', ...
-    'phaseDisplayLimits', 'originalPhaseDisplayLimits');
+    'propagationMargin', 'phaseDisplayLimits', 'originalPhaseDisplayLimits', ...
+    'defaultView', 'samplePlaneTrimPixels', 'objectPlaneOffsetPixels');
 save(fullfile(diagnosticsFolder, 'meta.mat'), 'mainPara', 'zPositions', ...
     'feedbackA', 'feedbackB', 'rHistory', 'focusDistance', 'bounds', ...
-    'originalBounds');
+    'originalBounds', 'propagationMargin', 'samplePlaneTrimPixels', ...
+    'objectPlaneOffsetPixels');
 
 imwrite(amplitude, fullfile(resultsFolder, 'amplitude.png'));
 imwrite(phaseRGB, fullfile(resultsFolder, 'phase_heatmap.png'));
+imwrite(unionAmplitude, fullfile(resultsFolder, 'amplitude_union.png'));
+imwrite(unionPhaseRGB, fullfile(resultsFolder, 'phase_heatmap_union.png'));
 imwrite(originalAmplitude, fullfile(resultsFolder, 'originalFOV_amplitude.png'));
 imwrite(originalPhaseRGB, ...
     fullfile(resultsFolder, 'originalFOV_phase_heatmap.png'));
@@ -418,6 +466,81 @@ for index = 1:count
     else
         masks{index} = logical(masks{index});
     end
+end
+end
+
+function [mask, trimPixels, offsetPixels] = trimExpandedSamplePadding( ...
+        mask, geometry, focusDistance)
+% Remove only the excess on the registration-expanded side. Do not shift
+% the complete crop window: the opposite edge belongs to the first frame
+% and contains measured object information.
+trimPixels = [0, 0, 0, 0]; % [left, top, right, bottom]
+offsetPixels = [0, 0];
+required = {'padSize', 'orig_size', 'Z'};
+if ~all(isfield(geometry, required)) || geometry.Z == 0 || ~any(mask(:))
+    return;
+end
+
+sourceM = geometry.M;
+sourceN = geometry.N;
+if isfield(geometry, 'orig_M'), sourceM = geometry.orig_M; end
+if isfield(geometry, 'orig_N'), sourceN = geometry.orig_N; end
+offsetPixels = focusDistance .* [sourceM, sourceN] ./ geometry.Z;
+
+[rows, columns] = find(mask);
+bounds = [min(columns), min(rows), max(columns), max(rows)];
+reference = [geometry.padSize(2) + 1, geometry.padSize(1) + 1, ...
+    geometry.padSize(2) + geometry.orig_size(2), ...
+    geometry.padSize(1) + geometry.orig_size(1)];
+
+if offsetPixels(1) > 0
+    available = max(bounds(3) - reference(3), 0);
+    trimPixels(3) = min(round(offsetPixels(1)), available);
+    if trimPixels(3) > 0
+        mask(:, bounds(3)-trimPixels(3)+1:bounds(3)) = false;
+    end
+elseif offsetPixels(1) < 0
+    available = max(reference(1) - bounds(1), 0);
+    trimPixels(1) = min(round(-offsetPixels(1)), available);
+    if trimPixels(1) > 0
+        mask(:, bounds(1):bounds(1)+trimPixels(1)-1) = false;
+    end
+end
+
+if offsetPixels(2) > 0
+    available = max(bounds(4) - reference(4), 0);
+    trimPixels(4) = min(round(offsetPixels(2)), available);
+    if trimPixels(4) > 0
+        mask(bounds(4)-trimPixels(4)+1:bounds(4), :) = false;
+    end
+elseif offsetPixels(2) < 0
+    available = max(reference(2) - bounds(2), 0);
+    trimPixels(2) = min(round(-offsetPixels(2)), available);
+    if trimPixels(2) > 0
+        mask(bounds(2):bounds(2)+trimPixels(2)-1, :) = false;
+    end
+end
+end
+
+function [safeMask, margin] = propagationSafeMask( ...
+        mask, zPositions, focusDistance, mainPara)
+trimBoundary = getOption(mainPara, ...
+    {'Output', 'trimPropagationBoundary'}, false);
+safeMask = mask;
+margin = 0;
+if ~trimBoundary || all(mask(:))
+    return;
+end
+
+% Same finite-sensor support estimate used by padded angular-spectrum models.
+maximumDistance = max([abs(zPositions(:)); abs(focusDistance)]);
+requestedMargin = ceil(maximumDistance * mainPara.WaveLength / ...
+    (2 * mainPara.PixelSize^2));
+distanceToInvalid = bwdist(~mask);
+maximumAvailable = max(distanceToInvalid(mask), [], 'all');
+margin = min(requestedMargin, max(floor(maximumAvailable) - 1, 0));
+if margin > 0
+    safeMask = mask & distanceToInvalid > margin;
 end
 end
 

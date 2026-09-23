@@ -73,6 +73,8 @@ diagnostics/
 
 相位热力图使用中心视场相位的 1%–99% 分位范围抑制边缘离群值，再使用 `hot` 色表增强物体相位特征。实际显示范围保存在 `reconstruction.mat` 的 `phaseDisplayLimits` 和 `originalPhaseDisplayLimits` 中。重建默认启用样品面自适应复数 TV，最大重叠区域受到保护，低覆盖边缘约束更强。
 
+APRW 在测量区域内使用软掩膜加权，在测量区域外保留传播预测场，避免把扩展画布重新截断为零。默认保留全部有测量支持的联合视场，不会仅按传播距离统一内缩边界；覆盖度与平面一致性用于自适应 TV，而不直接删除低重叠区域。若确实需要保守输出，可启用 `options.output.trimPropagationBoundary`，实际内缩宽度会记录在 `reconstruction.mat` 的 `propagationMargin` 中。严格原始视场输出始终不做该尺寸裁剪。
+
 `results/reconstruction.mat` 同时保存 APRW 得到的参考面复场 `field`、TV 后样品面结果 `object` 和严格原始视场结果 `objectOriginalFOV`。因此可以在不重新运行 APRW 的情况下重新自动聚焦或改变反向传播距离。
 
 需要 MATLAB Image Processing Toolbox；有可用 GPU 时会自动加速，否则使用 CPU。
