@@ -7,15 +7,18 @@ addpath(genpath(fullfile(projectRoot, 'src')));
 
 %% Dataset and acquisition geometry
 imageFolder = ...
-    '\\192.168.2.166\d\lesslens\2026.9.2\USAF_1951_3\G\foreground_img';
+    '\\192.168.2.166\d\lesslens\2026.8.31\Blander_sec_1\Pixel_217_319\UD_1';
 calibrationFile = fullfile(projectRoot, 'data', 'calibration', ...
-    '9.1_G', 'MNZ_result.mat');
+    '9.1_G', 'MNZ_result.mat')
 outputFile = fullfile(projectRoot, 'data', 'reconstruction_input.mat');
-expectedImageCount = 61;
+% expectedImageCount = 61;
 wavelength = 514e-9; % [m]
 pixelSize = 3e-6;    % [m/pixel]
-distanceSteps = [0, ones(1, expectedImageCount - 1)] * 0.1e-3; % [m]
-
+% Nonuniform adjacent intervals: 0.1, 0.2, ..., 1.0 mm.
+% APRW uses cumsum(distanceSteps), so the final plane is at 5.5 mm.
+% distanceSteps = [0,ones(1,expectedImageCount-1)] * 0.1e-3; % [m]
+% distanceSteps = (0:0.1:1) * 1e-3; % [m]
+ distanceSteps = (0:0.2:1.4) * 1e-3; % [m]
 %% Build the reconstruction input
 calibration = load(calibrationFile, 'MNZ_result');
 if ~isfield(calibration, 'MNZ_result')
@@ -23,10 +26,10 @@ if ~isfield(calibration, 'MNZ_result')
 end
 [images, geometry] = prepareMeasurements( ...
     imageFolder, calibration.MNZ_result, distanceSteps);
-if numel(images) ~= expectedImageCount
-    error('Expected %d images, but found %d.', ...
-        expectedImageCount, numel(images));
-end
+% if numel(images) ~= expectedImageCount
+%     error('Expected %d images, but found %d.', ...
+%         expectedImageCount, numel(images));
+% end
 
 inputData = struct('images', {images}, 'geometry', geometry, ...
     'distanceSteps', distanceSteps, 'wavelength', wavelength, ...
