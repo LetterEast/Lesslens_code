@@ -45,12 +45,8 @@ runFolder = fullfile(outputRoot, sprintf('APRW_%s_N%d_I%d_rec%d', ...
 if ~isfolder(runFolder), mkdir(runFolder); end
 
 hardMasks = getMasks(mnz, 'ValidMaskHard', nImages, size(imgSet{1}), false);
-softMasks = getMasks(mnz, 'ValidMask', nImages, size(imgSet{1}), true);
-coverageCount = sum(cat(3, hardMasks{:}), 3);
-weightStack = cat(3, softMasks{:});
+[weightStack, coverageCount] = coverageFusionWeights(hardMasks);
 totalWeight = sum(weightStack, 3);
-validMaskThreshold = getOption(mainPara, ...
-    {'Output', 'validMaskThreshold'}, 0.01);
 minimumCoverageFraction = getOption(mainPara, ...
     {'Output', 'minimumCoverageFraction'}, 0);
 minimumCoverageFraction = min(max(minimumCoverageFraction, 0), 1);
@@ -58,7 +54,8 @@ minimumCoverage = getOption(mainPara, ...
     {'Output', 'minimumCoverageCount'}, ...
     max(1, ceil(minimumCoverageFraction * nImages)));
 minimumCoverage = min(max(round(minimumCoverage), 1), nImages);
-measurementSupportMask = totalWeight > validMaskThreshold;
+% Rebuild from hard masks, including for existing MAT files with cosine windows.
+measurementSupportMask = coverageCount > 0;
 outputMask = measurementSupportMask & ...
     coverageCount >= minimumCoverage;
 limitHorizontalToReference = getOption(mainPara, ...
@@ -67,7 +64,6 @@ if limitHorizontalToReference
     referenceColumns = any(hardMasks{1}, 1);
     outputMask = outputMask & repmat(referenceColumns, size(outputMask, 1), 1);
 end
-trustedMask = coverageCount >= min(2, nImages) & outputMask;
 
 initialAmplitude = sqrt(max(imgSet{1}, 0));
 initialMask = cast(hardMasks{1}, 'like', initialAmplitude);
@@ -77,10 +73,9 @@ initialAmplitude = initialMask .* initialAmplitude + ...
     (1 - initialMask) .* background;
 field = initialAmplitude .* mainPara.IllumSet;
 
-% feedbackA = 0.7;
-% feedbackB = -0.13 * feedbackA + 0.6;
-feedbackA = 0;
-feedbackB = 0;
+feedbackA = 0.7;
+feedbackB = -0.13 * feedbackA + 0.6;
+
 previous = cell(1, nImages);
 previous2 = cell(1, nImages);
 rHistory = nan(nIterations, 1);
@@ -170,7 +165,7 @@ for iteration = 1:nIterations
         recordedFields{end+1, 1} = field; %#ok<AGROW>
         saveIteration(field, iteration, runFolder, mainPara, zPositions, ...
             feedbackA, feedbackB, rHistory, coverageCount, ...
-            planeUncertainty, outputMask, trustedMask, cropOutput, ...
+            planeUncertainty, cropOutput, ...
             zeroInvalid, defaultToOriginalFOV);
     end
     if converged
@@ -190,7 +185,7 @@ end
 
 function saveIteration(field, iteration, runFolder, mainPara, zPositions, ...
         feedbackA, feedbackB, rHistory, coverageCount, planeUncertainty, ...
-        outputMask, trustedMask, cropOutput, zeroInvalid, ...
+        cropOutput, zeroInvalid, ...
         defaultToOriginalFOV)
 folder = fullfile(runFolder, sprintf('Iter_%04d', iteration));
 resultsFolder = fullfile(folder, 'results');
@@ -234,74 +229,60 @@ if mainPara.TV.enabled
     saveTVMaps(diagnosticsFolder, tvMaps, mainPara.TV);
 end
 
+geometrySupport = sampleGeometrySupport(size(field), mainPara.MNZ_result, ...
+    zPositions, focusDistance);
+sampleCoverageFull = geometrySupport.coverage;
+minimumCoverage = getOption(mainPara, {'Output','minimumCoverageCount'}, ...
+    max(1,ceil(getOption(mainPara, {'Output','minimumCoverageFraction'},0)*numel(zPositions))));
+minimumCoverage = min(max(round(minimumCoverage),1),numel(zPositions));
+sampleOutputMask = sampleCoverageFull >= minimumCoverage;
+if getOption(mainPara, {'Output','limitHorizontalToReferenceFOV'},false)
+    sampleOutputMask = sampleOutputMask & any(geometrySupport.firstMask,1);
+end
 [safeOutputMask, propagationMargin] = propagationSafeMask( ...
-    outputMask, zPositions, focusDistance, mainPara);
-[safeOutputMask, samplePlaneTrimPixels, objectPlaneOffsetPixels] = ...
-    trimExpandedSamplePadding( ...
-    safeOutputMask, mainPara.MNZ_result, focusDistance);
-trustedMask = trustedMask & safeOutputMask;
-
-% Keep the first detector-facing edge fixed. Only trim the over-expanded
-% side introduced by tilted-source registration and object back propagation.
-[objectOriginalFOV, originalBounds] = cropFirstImageFOV( ...
-    object, mainPara.MNZ_result);
+    sampleOutputMask, zPositions, focusDistance, mainPara);
+trustedMask = sampleCoverageFull >= min(2,numel(zPositions)) & safeOutputMask;
+[objectOriginalFOV, originalValidMask, originalBounds] = applyOutputMask( ...
+    object, geometrySupport.firstMask, true, zeroInvalid);
 [object, validMask, bounds] = applyOutputMask( ...
     object, safeOutputMask, cropOutput, zeroInvalid);
 trustedMask = trustedMask(bounds(2):bounds(4), bounds(1):bounds(3));
-unionAmplitude = normalizePercentile(abs(object), 1, 99);
+sampleCoverage = sampleCoverageFull(bounds(2):bounds(4), bounds(1):bounds(3));
+unionAmplitude = normalizePercentile(abs(object), 1, 99, validMask);
 originalAmplitude = normalizePercentile(abs(objectOriginalFOV), 1, 99);
-[unionPhaseRGB, phaseDisplayLimits] = phaseHeatmap(angle(object));
+[unionPhaseRGB, phaseDisplayLimits] = phaseHeatmap(angle(object), validMask);
 [originalPhaseRGB, originalPhaseDisplayLimits] = ...
     phaseHeatmap(angle(objectOriginalFOV));
 
 if defaultToOriginalFOV
     amplitude = originalAmplitude;
     phaseRGB = originalPhaseRGB;
-    defaultView = 'original_camera_fov';
+    defaultView = 'first_camera_sample_fov';
+    displayMask = originalValidMask;
 else
     amplitude = unionAmplitude;
     phaseRGB = unionPhaseRGB;
-    defaultView = 'shifted_union_fov';
+    defaultView = 'geometric_sample_union';
+    displayMask = validMask;
 end
 
 save(fullfile(resultsFolder, 'reconstruction.mat'), ...
     'field', 'object', 'objectOriginalFOV', 'validMask', 'trustedMask', ...
     'bounds', 'originalBounds', 'focusDistance', ...
     'propagationMargin', 'phaseDisplayLimits', 'originalPhaseDisplayLimits', ...
-    'defaultView', 'samplePlaneTrimPixels', 'objectPlaneOffsetPixels');
+    'defaultView', 'sampleCoverage', 'originalValidMask');
+save(fullfile(diagnosticsFolder, 'sample_geometry.mat'), 'geometrySupport');
 save(fullfile(diagnosticsFolder, 'meta.mat'), 'mainPara', 'zPositions', ...
     'feedbackA', 'feedbackB', 'rHistory', 'focusDistance', 'bounds', ...
-    'originalBounds', 'propagationMargin', 'samplePlaneTrimPixels', ...
-    'objectPlaneOffsetPixels');
+    'originalBounds', 'propagationMargin');
 
-imwrite(amplitude, fullfile(resultsFolder, 'amplitude.png'));
-imwrite(phaseRGB, fullfile(resultsFolder, 'phase_heatmap.png'));
-imwrite(unionAmplitude, fullfile(resultsFolder, 'amplitude_union.png'));
-imwrite(unionPhaseRGB, fullfile(resultsFolder, 'phase_heatmap_union.png'));
+writeMaskedPNG(amplitude, fullfile(resultsFolder, 'amplitude.png'), displayMask);
+writeMaskedPNG(phaseRGB, fullfile(resultsFolder, 'phase_heatmap.png'), displayMask);
+writeMaskedPNG(unionAmplitude, fullfile(resultsFolder, 'amplitude_union.png'), validMask);
+writeMaskedPNG(unionPhaseRGB, fullfile(resultsFolder, 'phase_heatmap_union.png'), validMask);
 imwrite(originalAmplitude, fullfile(resultsFolder, 'originalFOV_amplitude.png'));
 imwrite(originalPhaseRGB, ...
     fullfile(resultsFolder, 'originalFOV_phase_heatmap.png'));
-end
-
-function [field, bounds] = cropFirstImageFOV(field, mnz)
-if ~isfield(mnz, 'padSize') || ~isfield(mnz, 'orig_size')
-    bounds = [1, 1, size(field, 2), size(field, 1)];
-    return;
-end
-
-padY = mnz.padSize(1);
-padX = mnz.padSize(2);
-originalHeight = mnz.orig_size(1);
-originalWidth = mnz.orig_size(2);
-firstRow = padY + 1;
-firstColumn = padX + 1;
-lastRow = firstRow + originalHeight - 1;
-lastColumn = firstColumn + originalWidth - 1;
-if lastRow > size(field, 1) || lastColumn > size(field, 2)
-    error('Stored original-FOV bounds exceed the reconstruction canvas.');
-end
-bounds = [firstColumn, firstRow, lastColumn, lastRow];
-field = field(firstRow:lastRow, firstColumn:lastColumn);
 end
 
 function illumination = sphericalIllumination(imageSize, geometry, pixelSize, wavelength)
@@ -343,7 +324,7 @@ maps.confidence = coverageCount ./ max(maximumCoverage, 1);
 maps.coverageRisk = (1 - maps.confidence) .^ settings.coveragePower;
 
 uncertainty = gather(real(planeUncertainty));
-coreMask = maps.reliableMask & maps.confidence >= 0.9;
+coreMask = maps.reliableMask & maps.confidence >= 0.8;
 if any(coreMask(:))
     baseline = median(uncertainty(coreMask), 'all');
 else
@@ -469,59 +450,6 @@ for index = 1:count
 end
 end
 
-function [mask, trimPixels, offsetPixels] = trimExpandedSamplePadding( ...
-        mask, geometry, focusDistance)
-% Remove only the excess on the registration-expanded side. Do not shift
-% the complete crop window: the opposite edge belongs to the first frame
-% and contains measured object information.
-trimPixels = [0, 0, 0, 0]; % [left, top, right, bottom]
-offsetPixels = [0, 0];
-required = {'padSize', 'orig_size', 'Z'};
-if ~all(isfield(geometry, required)) || geometry.Z == 0 || ~any(mask(:))
-    return;
-end
-
-sourceM = geometry.M;
-sourceN = geometry.N;
-if isfield(geometry, 'orig_M'), sourceM = geometry.orig_M; end
-if isfield(geometry, 'orig_N'), sourceN = geometry.orig_N; end
-offsetPixels = focusDistance .* [sourceM, sourceN] ./ geometry.Z;
-
-[rows, columns] = find(mask);
-bounds = [min(columns), min(rows), max(columns), max(rows)];
-reference = [geometry.padSize(2) + 1, geometry.padSize(1) + 1, ...
-    geometry.padSize(2) + geometry.orig_size(2), ...
-    geometry.padSize(1) + geometry.orig_size(1)];
-
-if offsetPixels(1) > 0
-    available = max(bounds(3) - reference(3), 0);
-    trimPixels(3) = min(round(offsetPixels(1)), available);
-    if trimPixels(3) > 0
-        mask(:, bounds(3)-trimPixels(3)+1:bounds(3)) = false;
-    end
-elseif offsetPixels(1) < 0
-    available = max(reference(1) - bounds(1), 0);
-    trimPixels(1) = min(round(-offsetPixels(1)), available);
-    if trimPixels(1) > 0
-        mask(:, bounds(1):bounds(1)+trimPixels(1)-1) = false;
-    end
-end
-
-if offsetPixels(2) > 0
-    available = max(bounds(4) - reference(4), 0);
-    trimPixels(4) = min(round(offsetPixels(2)), available);
-    if trimPixels(4) > 0
-        mask(bounds(4)-trimPixels(4)+1:bounds(4), :) = false;
-    end
-elseif offsetPixels(2) < 0
-    available = max(reference(2) - bounds(2), 0);
-    trimPixels(2) = min(round(-offsetPixels(2)), available);
-    if trimPixels(2) > 0
-        mask(bounds(2):bounds(2)+trimPixels(2)-1, :) = false;
-    end
-end
-end
-
 function [safeMask, margin] = propagationSafeMask( ...
         mask, zPositions, focusDistance, mainPara)
 trimBoundary = getOption(mainPara, ...
@@ -557,21 +485,26 @@ end
 if zeroInvalid, field(~mask) = 0; end
 end
 
-function image = normalizePercentile(data, lowPercentile, highPercentile)
+function image = normalizePercentile(data, lowPercentile, highPercentile, mask)
 data = double(gather(data));
-limits = prctile(data(:), [lowPercentile, highPercentile]);
+if nargin<4, mask = true(size(data)); end
+limits = prctile(data(mask), [lowPercentile, highPercentile]);
 image = (data - limits(1)) / max(limits(2) - limits(1), eps);
 image = min(max(image, 0), 1);
 end
 
-function [rgb, limits] = phaseHeatmap(phase)
+function [rgb, limits] = phaseHeatmap(phase, mask)
 % Robust contrast stretch from the central field suppresses edge outliers.
 phase = double(gather(phase));
+if nargin<2, mask = true(size(phase)); end
 rowMargin = floor(size(phase, 1) * 0.25);
 columnMargin = floor(size(phase, 2) * 0.25);
 central = phase(rowMargin+1:end-rowMargin, ...
     columnMargin+1:end-columnMargin);
-limits = prctile(central(:), [1, 99]);
+centralMask = mask(rowMargin+1:end-rowMargin, columnMargin+1:end-columnMargin);
+values = central(centralMask);
+if isempty(values), values = phase(mask); end
+limits = prctile(values, [1, 99]);
 if limits(2) <= limits(1), limits(2) = limits(1) + eps; end
 normalized = (phase - limits(1)) / (limits(2) - limits(1));
 normalized = min(max(normalized, 0), 1);

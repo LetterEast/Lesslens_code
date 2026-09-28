@@ -31,12 +31,10 @@ options.tv.subiterations = 10;
 options.output.rootFolder = fullfile(projectRoot, 'ResultFolder');
 options.output.cropToValidFOV = true;
 options.output.zeroFillInvalid = true;
-options.output.validMaskThreshold = 0.01;
-% Default PNG: largest offset-expanded FOV with multi-plane support.
-% The exact first-camera FOV remains available as originalFOV_amplitude.png.
+% Output uses the geometric sample-plane union; unsupported corners are zero-filled.
+% originalFOV_amplitude.png uses the first camera footprint mapped to the sample.
 options.output.defaultToOriginalFOV = false;
-% Retain the complete offset-expanded union. Sample-plane displacement is
-% handled later when the reconstruction is cropped after back propagation.
+% Retain every geometrically supported sample pixel after back propagation.
 options.output.minimumCoverageCount = 1;
 options.output.limitHorizontalToReferenceFOV = false;
 options.output.trimPropagationBoundary = false;

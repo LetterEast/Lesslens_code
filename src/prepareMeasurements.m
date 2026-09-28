@@ -20,7 +20,6 @@ rawSupport = padarray(ones(height, width), [padY, padX], 0, 'both');
 
 registered = cell(1, count);
 hardMasks = cell(1, count);
-softMasks = cell(1, count);
 for index = 1:count
     padded = padarray(images{index}, [padY, padX], 'replicate', 'both');
     registered{index} = imtranslate(padded, [shiftX(index), shiftY(index)], ...
@@ -34,16 +33,20 @@ for index = 1:count
         [shiftX(index), shiftY(index)], 'nearest', ...
         'OutputView', 'same', 'FillValues', 0);
     hardMasks{index} = hardMasks{index} >= 0.5;
-    softMasks{index} = softenMask(hardMasks{index}, 100);
 end
 
 geometry.orig_M = geometry.M;
 geometry.orig_N = geometry.N;
 geometry.orig_size = [height, width];
 geometry.padSize = [padY, padX];
-geometry.ValidMask = softMasks;
+[weights, coverageCount] = coverageFusionWeights(hardMasks);
+geometry.ValidMask = cell(1, count);
+for index = 1:count
+    geometry.ValidMask{index} = weights(:, :, index);
+end
+geometry.FusionWeightMode = 'equal_per_covered_pixel';
 geometry.ValidMaskHard = hardMasks;
-geometry.CoverageCount = sum(cat(3, hardMasks{:}), 3);
+geometry.CoverageCount = coverageCount;
 geometry.UnionMask = geometry.CoverageCount >= 1;
 geometry.TrustedMask = geometry.CoverageCount >= 2;
 geometry.M = 0;
@@ -72,25 +75,4 @@ for index = 1:numel(entries)
     if size(image, 3) == 3, image = rgb2gray(image); end
     images{index} = image;
 end
-end
-
-function mask = softenMask(hardMask, transitionWidth)
-% Separable cosine edge taper inside the measured rectangle.
-[rows, columns] = find(hardMask);
-mask = zeros(size(hardMask));
-if isempty(rows), return; end
-y1 = min(rows); y2 = max(rows); x1 = min(columns); x2 = max(columns);
-height = y2 - y1 + 1; width = x2 - x1 + 1;
-edgeY = min([transitionWidth, floor(height/2)]);
-edgeX = min([transitionWidth, floor(width/2)]);
-windowY = ones(height, 1); windowX = ones(1, width);
-if edgeY > 0
-    ramp = 0.5 * (1 - cos(pi * (0:edgeY-1) / edgeY));
-    windowY(1:edgeY) = ramp; windowY(end-edgeY+1:end) = fliplr(ramp);
-end
-if edgeX > 0
-    ramp = 0.5 * (1 - cos(pi * (0:edgeX-1) / edgeX));
-    windowX(1:edgeX) = ramp; windowX(end-edgeX+1:end) = fliplr(ramp);
-end
-mask(y1:y2, x1:x2) = windowY * windowX;
 end

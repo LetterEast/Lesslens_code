@@ -7,16 +7,16 @@ addpath(genpath(fullfile(projectRoot, 'src')));
 
 %% Dataset and acquisition geometry
 imageFolder = ...
-    '\\192.168.2.166\d\lesslens\2026.8.31\Blander_sec_1\Pixel_217_319\UD_1';
+    '\\192.168.2.166\d\lesslens\2026.9.28\Earthworm_G\Pixel_218_315\foreground_img';
 calibrationFile = fullfile(projectRoot, 'data', 'calibration', ...
     '9.1_G', 'MNZ_result.mat')
 outputFile = fullfile(projectRoot, 'data', 'reconstruction_input.mat');
-% expectedImageCount = 61;
+% expectedImageCount = 7;
 wavelength = 514e-9; % [m]
 pixelSize = 3e-6;    % [m/pixel]
 % Nonuniform adjacent intervals: 0.1, 0.2, ..., 1.0 mm.
 % APRW uses cumsum(distanceSteps), so the final plane is at 5.5 mm.
-% distanceSteps = [0,ones(1,expectedImageCount-1)] * 0.1e-3; % [m]
+% distanceSteps = [0,ones(1,expectedImageCount-1)] * 1e-3; % [m]
 % distanceSteps = (0:0.1:1) * 1e-3; % [m]
  distanceSteps = (0:0.2:1.4) * 1e-3; % [m]
 %% Build the reconstruction input

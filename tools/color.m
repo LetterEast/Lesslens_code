@@ -8,7 +8,7 @@ projectRoot = fileparts(fileparts(mfilename('fullpath')));
 addpath(genpath(fullfile(projectRoot, 'src')));
 
 %% Dataset configuration
-imageRoot = 'D:\Desktop\data\2026\9.1\Breast_sec\UD_1';
+imageRoot = 'D:\Desktop\data\2026\9.28\1';
 calibrationRoot = 'D:\Desktop\data\2026\9.1\Pumpkin_sec\MNZ';
 outputRoot = fullfile(projectRoot, 'ResultFolder', 'Color');
 % Set COLOR_FORCE_RECONSTRUCT=1 before launching MATLAB to ignore the cache.
@@ -49,10 +49,10 @@ pixelSize = 3e-6;
 % distanceInterval = 0.1e-3;
  distanceSteps = (0:0.2:1.4) * 1e-3; % [m]
 %% Shared reconstruction settings
-options.iterations = 6;
+options.iterations = 20;
 options.recordEvery = options.iterations;
-options.focus.prior = 1.62e-3;
-options.focus.halfRange = 0.5e-3;
+options.focus.prior = 1.66e-3;
+options.focus.halfRange = 0.0e-3;
 options.focus.step = 0.01e-3;
 options.tv.enabled = true;
 options.tv.lambdaMin = 2e-3;
@@ -67,7 +67,6 @@ options.tv.step = 2;
 options.tv.subiterations = 10;
 options.output.cropToValidFOV = false;
 options.output.zeroFillInvalid = false;
-options.output.validMaskThreshold = 0.01;
 % Preserve each wavelength's complete offset-expanded valid FOV. RGB
 % fusion below uses the intersection of the three registered masks.
 options.output.minimumCoverageCount = 1;
@@ -172,15 +171,10 @@ for channel = 1:channelCount
         geometry = metadata.mainPara.MNZ_result;
     end
     reconstruction = load(resultFile, ...
-        'object', 'validMask', 'focusDistance');
+        'object', 'validMask', 'focusDistance', 'sampleCoverage');
     channelAmplitude{channel} = double(gather(abs(reconstruction.object)));
     channelMask{channel} = logical(gather(reconstruction.validMask));
-    if isfield(geometry, 'CoverageCount')
-        channelCoverage{channel} = double(gather(geometry.CoverageCount));
-    else
-        channelCoverage{channel} = ...
-            double(channelMask{channel}) * channelImageCount;
-    end
+    channelCoverage{channel} = double(gather(reconstruction.sampleCoverage));
     channelGeometry{channel} = geometry;
     focusDistances(channel) = reconstruction.focusDistance;
     channelRunFolders{channel} = runFolder;
@@ -283,6 +277,8 @@ if ~all(commonMask(:))
             channelCoverage{channel}, innerBounds);
     end
     commonMask = all(cat(3, channelMask{:}), 3);
+    physicalBounds = physicalBounds([1,2,1,2]) + innerBounds - 1;
+    cropBounds = cropBounds(:,[1,2,1,2]) + innerBounds - 1;
 end
 commonCoverage = min(cat(3, channelCoverage{:}), [], 3);
 commonCoverage(~commonMask) = 0;
@@ -295,8 +291,8 @@ normalizedChannels = cell(1, channelCount);
 for channel = 1:channelCount
     normalizedChannels{channel} = normalizeChannel( ...
         channelAmplitude{channel}, commonMask);
-    imwrite(normalizedChannels{channel}, fullfile( ...
-        outputRoot, ['amplitude_' channelNames{channel} '.png']));
+    writeMaskedPNG(normalizedChannels{channel}, fullfile( ...
+        outputRoot, ['amplitude_' channelNames{channel} '.png']), commonMask);
 end
 
 colorImageUncorrected = cat(3, normalizedChannels{rgbOrder(1)}, ...
@@ -383,24 +379,24 @@ colorImageChromaSmoothed = ycbcr2rgb(ycbcrImage);
 
 comparisonFolder = fullfile(outputRoot, 'comparisons');
 if ~isfolder(comparisonFolder), mkdir(comparisonFolder); end
-imwrite(colorImageUncorrected, fullfile(comparisonFolder, ...
-    '01_independent_percentile.png'));
-imwrite(colorImageLocallyBalanced, fullfile(comparisonFolder, ...
-    '02_independent_with_local_balance.png'));
-imwrite(colorImageLinear, fullfile(comparisonFolder, ...
-    '03_input_equalized_shared_scale.png'));
+writeMaskedPNG(colorImageUncorrected, fullfile(comparisonFolder, ...
+    '01_independent_percentile.png'), commonMask);
+writeMaskedPNG(colorImageLocallyBalanced, fullfile(comparisonFolder, ...
+    '02_independent_with_local_balance.png'), commonMask);
+writeMaskedPNG(colorImageLinear, fullfile(comparisonFolder, ...
+    '03_input_equalized_shared_scale.png'), commonMask);
 % The two selected methods are primary outputs; all other variants remain
 % under comparisons/.
-imwrite(colorImagePhysical, fullfile(outputRoot, ...
-    'color_fusion_physical.png'));
-imwrite(legacyContrastImage, fullfile(outputRoot, ...
-    'color_fusion_legacy.png'));
+writeMaskedPNG(colorImagePhysical, fullfile(outputRoot, ...
+    'color_fusion_physical.png'), commonMask);
+writeMaskedPNG(legacyContrastImage, fullfile(outputRoot, ...
+    'color_fusion_legacy.png'), commonMask);
 % Keep the legacy image at the historical filename for compatibility.
-imwrite(colorImage, fullfile(outputRoot, 'color_fusion_result.png'));
-imwrite(colorImageChromaSmoothed, fullfile( ...
-    comparisonFolder, '02_independent_with_local_balance_yuv.png'));
-imwrite(legacyImage, fullfile(comparisonFolder, ...
-    '04_legacy_full_field_scale.png'));
+writeMaskedPNG(colorImage, fullfile(outputRoot, 'color_fusion_result.png'), commonMask);
+writeMaskedPNG(colorImageChromaSmoothed, fullfile( ...
+    comparisonFolder, '02_independent_with_local_balance_yuv.png'), commonMask);
+writeMaskedPNG(legacyImage, fullfile(comparisonFolder, ...
+    '04_legacy_full_field_scale.png'), commonMask);
 save(fullfile(outputRoot, 'color_fusion_result.mat'), ...
     'colorImage', 'colorImagePhysical', 'physicalIntensity', ...
     'physicalWhiteGains', 'physicalWhiteLevels', 'physicalWhiteMask', ...
@@ -480,7 +476,7 @@ entries = supportedImageEntries(imageFolder);
 calibrationEntry = dir(calibrationFile);
 % Increment when reconstruction/FOV semantics change so stale channel
 % reconstructions are not silently reused by the color cache.
-sourceInfo.version = 2;
+sourceInfo.version = 3; % geometric sample-plane support and coverage
 sourceInfo.imageFolder = normalizePath(imageFolder);
 sourceInfo.imageNames = lower(string({entries.name}));
 sourceInfo.imageBytes = [entries.bytes];
