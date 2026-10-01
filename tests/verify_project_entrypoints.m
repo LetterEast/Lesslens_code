@@ -71,6 +71,5 @@ options.iterations = 1;
 options.recordEvery = 1;
 options.focus.prior = 1e-3;
 options.focus.halfRange = 0;
-options.tv.enabled = false;
 options.showFigures = false;
 end

@@ -22,7 +22,7 @@ assert(other.whiteAmplitude==0.5 && state.whiteAmplitude~=0.5);
 s.strength = 1;
 assert(all(isfinite(applyAdaptiveConstraint(u,d,s)), 'all'));
 o.iterations = 1; o.recordEvery = 1; o.showFigures = false;
-o.tv.enabled = false; o.output.saveFocusPlot = false;
+o.output.saveFocusPlot = false;
 o.focus.prior = 1e-3; o.focus.halfRange = 0;
 o.output.rootFolder = fullfile(root,'outputs','constraint_verification');
 [baseline,~] = reconstructMultiPlane(d,o);

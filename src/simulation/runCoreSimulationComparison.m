@@ -20,7 +20,6 @@ settings.stopOnConvergence=false; % Same iteration budget as the baseline.
 settings.showFigures=o.showFigures;
 settings.focus.prior=o.sampleDistances(1);settings.focus.halfRange=0;
 settings.focus.roiMode='full';
-settings.tv.enabled=o.core.tvEnabled;
 settings.adaptiveConstraint.enabled=o.core.adaptiveConstraintEnabled;
 settings.adaptiveConstraint.strength=o.core.adaptiveConstraintStrength;
 settings.adaptiveConstraint.edgeWidth=o.core.adaptiveConstraintEdgeWidth;
@@ -38,7 +37,7 @@ saved=load(checkpoint,'object','focusDistance');
 meta=load(fullfile(fileparts(fileparts(checkpoint)),'diagnostics','meta.mat'),'rHistory');
 assert(abs(saved.focusDistance-o.sampleDistances(1))<1e-12);
 assert(isequal(size(saved.object),[side side]));
-% Core saves the sample field after phase-only illumination removal and TV.
+% Core saves the sample field after phase-only illumination removal.
 % Convert to the SAME dimensionless transmission used by the other arms.
 % This is a geometric 1/r correction, not a fitted gain or display scaling.
 [x,y]=meshgrid(((1:side)-floor(side/2)-1)*o.pixelSize);

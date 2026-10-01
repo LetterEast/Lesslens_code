@@ -30,13 +30,9 @@ config.options.focus.cropSize = 256;
 config.options.focus.roiMode = 'center'; % 'manual' / 'center' / 'full'
 config.options.focus.roiBounds = [];
 
-%% TV and adaptive support
-config.options.tv.enabled = true;
-config.options.tv.lambdaMin = 2e-3;
-config.options.tv.lambdaMax = 2e-2;
+%% Adaptive support
 config.options.adaptiveConstraint.enabled = false;
 config.options.adaptiveConstraint.strength = 0.05;
-config.options.adaptiveConstraint.phaseMode = 'wrapped'; % 'circular' / 'off' also supported
 config.options.adaptiveConstraint.edgeWidth = 32;
 config.options.adaptiveConstraint.distance = [];
 config.options.adaptiveConstraint.whiteAmplitude = [];

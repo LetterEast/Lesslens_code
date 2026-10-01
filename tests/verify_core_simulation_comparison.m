@@ -9,7 +9,7 @@ o.core=struct('enabled',true);
 assert(numel(r.fields)==4 && height(r.quality)==16);
 assert(strcmp(r.names{4},'experimental_core'));
 assert(r.coreInfo.iterationsCompleted==o.iterations);
-assert(r.coreInfo.settings.tv.enabled && r.coreInfo.settings.adaptiveConstraint.enabled);
+assert(r.coreInfo.settings.adaptiveConstraint.enabled);
 assert(r.coreInfo.settings.focus.halfRange==0);
 assert(all(isfinite(r.fields{4}(:))));
 assert(isfile(fullfile(folder,'06_core_vs_calibrated.png')));

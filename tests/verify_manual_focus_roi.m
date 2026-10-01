@@ -18,7 +18,6 @@ options.focus.method = 'adfrft';
 options.focus.roiMode = 'manual';
 options.focus.prior = 1e-3;
 options.focus.halfRange = 0;
-options.tv.enabled = false;
 options.showFigures = false;
 options.output.rootFolder = fullfile(projectRoot,'outputs','manual_roi_verification', ...
     char(datetime('now','Format','yyyyMMdd_HHmmss_SSS')));

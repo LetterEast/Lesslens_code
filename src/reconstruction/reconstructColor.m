@@ -414,7 +414,7 @@ end
 function sourceInfo = reconstructionSourceInfo(inputFile, options)
 % A prepared channel MAT is the public boundary: no raw dataset paths needed.
 entry = dir(inputFile);
-sourceInfo.version = 6; % Full canvas plus separate shared grayscale rendering
+sourceInfo.version = 7; % Single original phase-support update; invalidate mode-based caches
 sourceInfo.inputFile = char(inputFile);
 sourceInfo.inputBytes = entry.bytes;
 sourceInfo.inputModified = entry.datenum;

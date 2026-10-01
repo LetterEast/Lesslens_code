@@ -14,10 +14,11 @@ save(fullfile(out,'manifest.mat'),'colorInput');
 c=loadProjectConfig('color',false);c.inputFile=fullfile(out,'manifest.mat');
 c.outputRoot=fullfile(out,'color');c.reuseExistingReconstructions=true;
 c.options=defaultReconstructionOptions();c.options.iterations=3;c.options.recordEvery=3;
+assert(~isfield(c.options,'tv'));
 c.options.showFigures=false;c.options.output.saveFocusPlot=false;
 c.options.focus.prior=.001;c.options.focus.halfRange=0;
 c.options.output.cropToValidFOV=true;c.options.output.zeroFillInvalid=true;
-c.options.adaptiveConstraint.enabled=true;c.options.adaptiveConstraint.phaseMode='circular';
+c.options.adaptiveConstraint.enabled=true;
 assert(~c.inputBrightness.enabled);
 gray=struct('inputFile',fullfile(out,'channel.mat'),'options',c.options);
 gray.options.output.rootFolder=fullfile(out,'gray');
@@ -29,6 +30,7 @@ for k=1:3
     cv=load(fullfile(cr,cm.latestResult),'field');
     assert(max(abs(gv.field-cv.field),[],'all')<1e-12);
     channelResults=fileparts(fullfile(cr,cm.latestResult));
+    assert(~isfile(fullfile(fileparts(channelResults),'diagnostics','adaptive_tv.mat')));
     grayResults=fileparts(fullfile(gr,gm.latestResult));
     assert(isequal(imread(fullfile(channelResults,'amplitude_cropped.png')), ...
         imread(fullfile(grayResults,'amplitude.png'))));
@@ -61,7 +63,7 @@ for k=1:3
 end
 reconstruct_color(c);r2=load(fullfile(cf,'color_fusion_result.mat'),'channelRunFolders');
 assert(isequal(r.channelRunFolders,r2.channelRunFolders));
-c.options.adaptiveConstraint.phaseMode='off';reconstruct_color(c);
+c.options.adaptiveConstraint.strength=0.1;reconstruct_color(c);
 r3=load(fullfile(cf,'color_fusion_result.mat'),'channelRunFolders');
 assert(~any(strcmp(r.channelRunFolders,r3.channelRunFolders)));
 if isfile(fullfile(root,'color_config.m'))

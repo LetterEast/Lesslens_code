@@ -7,7 +7,7 @@ inputData=syntheticInput();out=fullfile(root,'outputs','workflow_verification');
 if ~isfolder(out),mkdir(out);end
 cfg.inputFile=fullfile(out,'input.mat');save(cfg.inputFile,'inputData');
 cfg.options=defaultReconstructionOptions();cfg.options.iterations=1;
-cfg.options.recordEvery=1;cfg.options.focus.halfRange=0;cfg.options.tv.enabled=false;
+cfg.options.recordEvery=1;cfg.options.focus.halfRange=0;
 cfg.options.output.rootFolder=out;cfg.options.output.saveFocusPlot=false;
 [a,folder]=demo_exp(cfg);[b,~]=demo_exp_fast(cfg);
 assert(isequal(a,b),'Visual/fast experiment profiles changed numerical output.');

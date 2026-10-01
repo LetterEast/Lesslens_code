@@ -45,7 +45,6 @@ options.fov.saveAcquisitionGif=true; % 保存相机逐帧覆盖大样品的动�
 options.evaluation.phaseAmplitudeThreshold=0.05; % 真值幅度低于此值，不评价相位
 % 第四组：直接调用实验核心 reconstructMultiPlane，与标定球面波简化算法比较。
 options.core.enabled=true;
-options.core.tvEnabled=true;
 options.core.adaptiveConstraintEnabled=true;
 options.core.adaptiveConstraintStrength=0.05;
 options.core.adaptiveConstraintEdgeWidth=32;

@@ -12,9 +12,6 @@ masks = struct();
 validateattributes(settings.strength, {'numeric'}, ...
     {'real','finite','scalar','>=',0,'<=',1});
 if settings.strength == 0, return; end
-phaseMode = 'wrapped';
-if isfield(settings,'phaseMode'), phaseMode = settings.phaseMode; end
-phaseMode = validatestring(phaseMode,{'wrapped','circular','off'});
 if isempty(state)
     g = inputData.geometry;
     z = settings.distance;
@@ -61,28 +58,13 @@ t = u(state.rows,state.cols)./state.illumination;
 a = abs(t); p = angle(t);
 % Morphology is evaluated on CPU; projection retains the field's numeric type.
 masks.absorption = morphologySupport(double(gatherIfNeeded(1-a)),state.valid);
-switch phaseMode
-    case 'wrapped'
-        masks.phase = morphologySupport(double(gatherIfNeeded(p)),state.valid);
-    case 'circular'
-        % A 2*pi wrap is not an object boundary. Both signs are retained.
-        masks.phase = morphologySupport(double(gatherIfNeeded(abs(exp(1i*p)-1))),state.valid);
-    case 'off'
-        masks.phase = true(size(state.valid));
-end
+masks.phase = morphologySupport(double(gatherIfNeeded(p)),state.valid);
 masks.updateWeight = state.updateWeight;
 masks.valid = state.valid;
 s1 = cast(masks.absorption,'like',a); s2 = cast(masks.phase,'like',p);
 alpha = settings.strength.*cast(state.updateWeight,'like',a);
 amplitude = a + alpha.*((1-(1-a).*s1)-a);
-if strcmp(phaseMode,'circular')
-    % Smooth, periodic relaxation towards zero phase; unlike scaling angle,
-    % this creates no finite jump when a phase crosses -pi/pi. This is an
-    % optional modification, not the paper's original hard projection.
-    phase = p-alpha.*(1-s2).*sin(p);
-else
-    phase = p.*(1-alpha.*(1-s2));
-end
+phase = p.*(1-alpha.*(1-s2));
 updated = amplitude.*exp(1i*phase).*state.illumination;
 % Preserve unsupported corners and zero-weight boundary pixels exactly in
 % the sample plane, avoiding divide/multiply roundoff outside the update.

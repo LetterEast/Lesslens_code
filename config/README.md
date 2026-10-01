@@ -6,7 +6,7 @@
 | `reconstruct_fast` | `reconstruct_fast` | 无窗口，默认只记录最后一次迭代或提前收敛时的结果 |
 | `color` | `reconstruct_color` | 读取通道 MAT 清单并执行 RGB 重建与融合 |
 
-`src/io/defaultReconstructionOptions.m` ????????????? 3 ??????????????? TV/????????? `demo_exp` / `demo_exp_fast` ??????????????????????
+`src/io/defaultReconstructionOptions.m` 定义公共重建默认值，灰度、彩色与仿真核心共用。
 
 ```matlab
 cfg = loadProjectConfig('reconstruct');
@@ -63,7 +63,6 @@ cfg = loadProjectConfig('color', false);
 cfg.inputFile = 'D:\my_data\color_input.mat';
 cfg.options.iterations = 100;
 cfg.options.adaptiveConstraint.enabled = true;
-cfg.options.adaptiveConstraint.phaseMode = 'circular';
 folder = reconstruct_color_fast(cfg);
 ```
 

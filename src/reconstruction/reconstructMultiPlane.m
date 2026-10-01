@@ -13,7 +13,6 @@ settings.geometry = inputData.geometry;
 settings.iterations = options.iterations;
 settings.output = options.output;
 settings.runtime.showFigures = options.showFigures;
-settings.tv = options.tv;
 settings.focus = options.focus;
 settings.illumination = sphericalIllumination(size(imgSet{1}), ...
     inputData.geometry, inputData.pixelSize, inputData.wavelength);
@@ -175,17 +174,10 @@ for iteration = 1:nIterations
         ac.whiteAmplitude = constraintState.whiteAmplitude;
         settings.AdaptiveConstraint = ac;
         if iteration == 1
-            fprintf('Adaptive constraint: phaseMode=%s, strength %.3g, distance %.6g m, white amplitude %.6g\n', ...
-                ac.phaseMode,ac.strength,ac.distance,ac.whiteAmplitude);
+            fprintf('Adaptive constraint: strength %.3g, distance %.6g m, white amplitude %.6g\n', ...
+                ac.strength,ac.distance,ac.whiteAmplitude);
         end
     end
-
-    % Retain inter-plane disagreement for object-domain adaptive TV.
-    residualFloor = 0.01 * mean(abs(field(outputMask)).^2, 'all');
-    residualEnergy = sum(weightStack .* abs(guessStack - field).^2, 3) ./ ...
-        max(totalWeight, eps('like', totalWeight));
-    planeUncertainty = sqrt(residualEnergy ./ ...
-        (abs(field).^2 + residualFloor + eps('like', real(field))));
 
     rHistory(iteration) = sqrt(errorNumerator / max(errorDenominator, eps));
     fprintf('Iteration %d/%d: R-factor = %.6f\n', ...
@@ -206,8 +198,7 @@ for iteration = 1:nIterations
         end
         recordedFields{end+1, 1} = field; %#ok<AGROW>
         [focusMonitor,focusROI] = saveIteration(field, iteration, runFolder, settings, zPositions, ...
-            feedbackA, feedbackB, rHistory, coverageCount, ...
-            planeUncertainty, cropOutput, ...
+            feedbackA, feedbackB, rHistory, cropOutput, ...
             zeroInvalid, defaultToOriginalFOV, focusMonitor, focusROI);
     end
     if converged
@@ -234,7 +225,7 @@ fprintf('Results saved to: %s\n', runFolder);
 end
 
 function [focusMonitor,focusROI] = saveIteration(field, iteration, runFolder, settings, zPositions, ...
-        feedbackA, feedbackB, rHistory, coverageCount, planeUncertainty, ...
+        feedbackA, feedbackB, rHistory, ...
         cropOutput, zeroInvalid, ...
         defaultToOriginalFOV, focusMonitor, focusROI)
 folder = fullfile(runFolder, sprintf('iteration_%04d', iteration));
@@ -264,28 +255,7 @@ ledY = settings.geometry.N * settings.pixelSize;
 ledToSample = settings.geometry.Z - focusDistance;
 radius = sqrt((x - ledX).^2 + (y - ledY).^2 + ledToSample^2);
 sampleIllumination = exp(1i * (2*pi/settings.wavelength) .* radius);
-objectRaw = objectWithIllumination .* exp(-1i * angle(sampleIllumination));
-object = objectRaw;
-
-if settings.tv.enabled
-    tvMaps = buildAdaptiveTV(coverageCount, planeUncertainty, ...
-        settings.geometry, settings.tv);
-    object = applyAdaptiveTV(objectRaw, tvMaps.lambdaGradient, ...
-        tvMaps.gradientMask, tvMaps.reliableMask, settings.tv);
-    object(tvMaps.reliableMask) = min(abs(object(tvMaps.reliableMask)), 1.05) .* ...
-        exp(1i * angle(object(tvMaps.reliableMask)));
-    confidence = tvMaps.confidence;
-    uncertainty = tvMaps.uncertainty;
-    risk = tvMaps.risk;
-    lambdaMap = tvMaps.lambdaMap;
-    directionWeightX = tvMaps.directionWeightX;
-    directionWeightY = tvMaps.directionWeightY;
-    tvSettings = settings.tv;
-    save(fullfile(diagnosticsFolder, 'adaptive_tv.mat'), ...
-        'coverageCount', 'confidence', 'uncertainty', 'risk', 'lambdaMap', ...
-        'directionWeightX', 'directionWeightY', 'tvSettings');
-    saveTVMaps(diagnosticsFolder, tvMaps, settings.tv);
-end
+object = objectWithIllumination .* exp(-1i * angle(sampleIllumination));
 
 geometrySupport = sampleGeometrySupport(size(field), settings.geometry, ...
     zPositions, focusDistance);
@@ -357,7 +327,7 @@ if showFocus || saveFocus
     visible = 'off';
     if showFocus, visible = 'on'; end
     focusMonitor = plotAutofocus(focusDiagnostics, amplitude, phaseRGB, ...
-        sprintf('Iteration %d | autofocus before TV; displayed output after TV if enabled', iteration), ...
+        sprintf('Iteration %d | reconstructed sample field', iteration), ...
         focusMonitor, visible);
     if ~showFocus, cleanupFigure = onCleanup(@() close(focusMonitor)); end
     if saveFocus
@@ -379,18 +349,6 @@ y = ((1:height) - floor(height/2) - 1).' * pixelSize;
 radius = sqrt((x - geometry.M*pixelSize).^2 + ...
     (y - geometry.N*pixelSize).^2 + geometry.Z^2);
 illumination = exp(1i * (2*pi/wavelength) .* radius);
-end
-
-function saveTVMaps(folder, maps, settings)
-writeMap(maps.confidence, folder, 'coverage_confidence.png');
-writeMap(maps.risk, folder, 'tv_risk.png');
-writeMap(maps.lambdaMap ./ max(settings.lambdaMax, eps), ...
-    folder, 'tv_lambda.png');
-end
-
-function writeMap(map, folder, name)
-image = uint16(min(max(double(map), 0), 1) * 65535);
-imwrite(image, fullfile(folder, name));
 end
 
 function masks = getMasks(mnz, fieldName, count, imageSize, useSoft)

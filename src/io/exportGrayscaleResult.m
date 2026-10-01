@@ -1,6 +1,6 @@
 function exportGrayscaleResult(r,folder,output,sourceResult)
 %EXPORTGRAYSCALERESULT Render an existing full channel field like grayscale.
-% No propagation, autofocus or TV is repeated. This is before RGB alignment,
+% No propagation or autofocus is repeated. This is before RGB alignment,
 % gain/colour correction, common-field cropping and fusion.
 if ~isfolder(folder),mkdir(folder);end
 validMask=logical(r.validMask);object=r.object;

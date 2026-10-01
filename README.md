@@ -2,6 +2,8 @@
 
 在 MATLAB 中打开项目根目录，先运行 `setup_project`。
 
+灰度、彩色和仿真实验核心共用形态学支撑约束，不包含 TV 实现或相关参数。
+
 | 用途 | 过程可视化版 | 快速版 |
 |---|---|---|
 | 仿真：球面波、标定与重建比较 | `demo_sim` | `demo_sim_fast` |
@@ -122,20 +124,19 @@ demo_sim 顶部参数
                                     ├─ 已知真值球面波重建（参考）
                                     ├─ 标定后球面波重建（估计 M/N/Z）
                                     ├─ 平面波 + 平移重建（对照）
-                                    └─ 实验核心重建（同一标定 M/N/Z，所选 TV / 自适应约束）
+                                    └─ 实验核心重建（同一标定 M/N/Z，自适应支撑约束）
 ```
 
 四组共用测量数据和迭代次数，前三组共用简化求解器。`06_core_vs_calibrated.png` 并排显示真值、标定球面波简化重建、实验核心重建；`amplitude_phase_comparison.png` 显示全部四组。
 
 `sourceToSample` 是光源到样品距离；标定 `Z` 是光源到首个探测器平面的距离。`sampleDistances` 和 `calibrationDistances` 是绝对传播距离，两组首个距离须相同。
 
-前三组用简化幅度投影隔离传播模型和标定的影响，不包含 TV 或自适应约束。第四组保留实验核心的反馈迭代、覆盖权重融合及所选约束，TV 按核心原有流程在输出阶段应用。所有组固定使用已知样品距离，本次比较不混入自动聚焦误差。相位恢复仍可能有误差，应结合相位指标判断。
+前三组用简化幅度投影隔离传播模型和标定的影响，不包含自适应约束。第四组保留实验核心的反馈迭代、覆盖权重融合及所选约束。所有组固定使用已知样品距离，本次比较不混入自动聚焦误差。相位恢复仍可能有误差，应结合相位指标判断。
 
 在 `main/demo_sim.m` 顶部设置第四组，无需修改实验配置：
 
 ```matlab
 options.core.enabled = true;
-options.core.tvEnabled = true;
 options.core.adaptiveConstraintEnabled = true;
 options.core.adaptiveConstraintStrength = 0.05;
 options.core.adaptiveConstraintEdgeWidth = 32;
@@ -145,7 +146,7 @@ options.core.adaptiveConstraintEdgeWidth = 32;
 
 图像样品的支撑处理有一项差别：简化算法每轮将图片范围外的物场置零；实验核心保留原有迭代约束，只在最终展示时将该范围外置零。因而这是两套完整流程的比较，不能把结果差异全部归因于某个单独约束。四组指标使用相同真值区域，最终测量残差使用各自未经展示裁剪的重建场计算。
 
-`convergence.png` 保留各求解器的内部残差：核心曲线位于参考探测器面、在输出 TV 之前，简化算法曲线由物面场正向计算。比较最终数据拟合时请使用 `metrics.csv` 中按同一评分流程计算的 `amplitude_residual`，不要直接比较两种内部曲线的高低。
+`convergence.png` 保留各求解器的内部残差：核心曲线位于参考探测器面，简化算法曲线由物面场正向计算。比较最终数据拟合时请使用 `metrics.csv` 中按同一评分流程计算的 `amplitude_residual`，不要直接比较两种内部曲线的高低。
 
 ### 本地调试与批量实验
 
@@ -184,11 +185,11 @@ cfg.options.focus.prior = 1.68e-3;
 
 `folder = reconstruct_color_fast;` 使用同一配置和算法，关闭过程窗口及聚焦曲线 PNG 导出，仍保存彩色图、各通道灰度图、复场和聚焦数值。迭代次数和记录间隔保持配置值；若选择手动聚焦且未填写 ROI，仍需手动选区。
 
-彩色的迭代、聚焦、TV、自适应约束、灰度显示和融合参数全部在 `color_config.m` 独立设置，不读取灰度配置。彩色和灰度共用 `defaultReconstructionOptions` 与 `reconstructMultiPlane`，三个通道分别重建。测量数据和标定保持每通道独立；额外逐帧亮度校正默认关闭。没有本机配置时，公开入口使用 `config/color_example.m` 和标准通道 MAT。
+彩色的迭代、聚焦、自适应约束、灰度显示和融合参数全部在 `color_config.m` 独立设置，不读取灰度配置。彩色和灰度共用 `defaultReconstructionOptions` 与 `reconstructMultiPlane`，三个通道分别重建。测量数据和标定保持每通道独立；额外逐帧亮度校正默认关闭。没有本机配置时，公开入口使用 `config/color_example.m` 和标准通道 MAT。
 
 结果位于 `outputs/color/`：`channel_B/`、`channel_G/`、`channel_R/` 保留完整重建过程与供融合使用的画布；`grayscale/B/`、`grayscale/G/`、`grayscale/R/` 集中保存各通道最后一次记录的灰度结果。每个灰度目录都有 `amplitude.png`、`phase_heatmap.png`、联合视场和首帧视场图片，以及数值 `reconstruction.mat`。这些图使用单独灰度重建的裁剪、掩膜、幅度归一化和相位色轴规则，在 RGB 配准和颜色调整之前导出，不重复传播或重建。MAT 中 `sourceResult` 指向原始完整结果。
 
-相同输入和参数才能复用通道缓存，改变约束模式会重新计算。`color_config.m` 被 Git 忽略；旧的 `local/config/color_local.m`、`color_input_local.m` 不参与新的根目录配置流程。
+相同输入和参数才能复用通道缓存，改变约束强度会重新计算。`color_config.m` 被 Git 忽略；旧的 `local/config/color_local.m`、`color_input_local.m` 不参与新的根目录配置流程。
 
 彩色各通道每次记录迭代时，在其 `iteration_XXXX/results/` 中额外保存 `amplitude_cropped.png` 与 `phase_heatmap_cropped.png`。使用与单独灰度重建一致的有效视场裁剪和显示规则，去掉计算画布的外围大黑边；原有完整画布图片和复场仍用于颜色融合。
 
