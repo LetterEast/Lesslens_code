@@ -1,19 +1,37 @@
-# 忽略运行产生的结果文件夹
+# Personal adapters, analyses, notes and settings are never part of the core.
+/local/
+# Personal single-config workflow at the project root.
+/reconstruction_config.m
+/color_config.m
+/calibration_config.m
+/run_reconstruction.m
+/.vscode/
+/dist/
+# Local datasets: keep only the public directory guide.
+/data/*
+!/data/README.md
+/config/*_local.m
+
+# Reconstruction results, diagnostics and test artifacts (at any depth).
 ResultFolder/
+outputs/
 result/
 title_folder/
-
-# 忽略临时数据处理文件夹
 RawImgAverage/
 fish/
-main\create_input_data.m
-# 忽略大型数据文件
+
+# Legacy data outside the data directory.
 *.mat
 *.png
 *.bmp
 *.jpg
-!examples/*.mat 
+*.jpeg
+*.tif
+*.tiff
 
-# 忽略操作系统自动生成的文件
+# MATLAB/editor/OS temporary files.
+*.asv
+*.m~
+slprj/
 .DS_Store
 Thumbs.db

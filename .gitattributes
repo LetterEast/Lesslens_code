@@ -1,0 +1,7 @@
+# Source archives contain only the public project, never personal workflows.
+/local export-ignore
+/.vscode export-ignore
+/data export-ignore
+/ResultFolder export-ignore
+/outputs export-ignore
+/dist export-ignore
